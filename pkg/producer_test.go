@@ -6,11 +6,11 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/hpcloud/tail"
+	"github.com/nxadm/tail"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -36,110 +36,144 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func TestLogEntryProducer(t *testing.T) {
-	producer, file, teardown := givenAW3CommonLogEntryProducer(t)
+func TestLogEntryProducer_WithInvalidFile(t *testing.T) {
+	opts := logmon.ProducerOpts{LogFilePath: "invalid-file-path"}
+	producer := logmon.NewLogEntryProducer(opts)
+	_, _, err := producer.Run(context.Background())
+	require.Error(t, err)
+}
+
+func TestLogEntryProducer_ForNLines(t *testing.T) {
+	// Setup producer and file to write to:
+	file, entries, cancel, teardown := setupFileAndProducer(t)
+	defer cancel()
 	defer teardown()
 
-	entries, cleanup, err := producer.Run(context.Background())
-	require.NoError(t, err)
-	defer cleanup()
+	// Write entries to log:
+	for i := 0; i < len(fixtures.raws); i++ {
+		go appendToFile(file, fixtures.raws[i])
+	}
 
-	t.Run("it produces one log entry when one line is written to file", func(t *testing.T) {
-		entry, raw := fixtures.GetOneAtRandom()
-		appendToFile(t, file, raw)
-
-		read := mustRead(t, entries)
-		require.EqualValues(t, entry, read)
-	})
-
-	t.Run("it produces N log entries when N lines are written to file", func(t *testing.T) {
-		for i := 0; i < len(fixtures.raws); i++ {
-			appendToFile(t, file, fixtures.raws[i])
+	// Read all the entries from the channel:
+	ok := true
+	count := 0
+	var read logmon.LogEntry
+	for ok && count < len(fixtures.raws) {
+		read, ok = <-entries
+		if ok {
+			require.False(t, cmp.Equal(logmon.LogEntry{}, read), "entry is not empty")
 		}
+		count++
+	}
 
-		ok := true
-		count := 0
-		for ok && count < len(fixtures.raws) {
-			_, ok = <-entries
+	require.True(t, ok, "all reads were successful")
+	require.Equal(t, len(fixtures.raws), count, "all lines have been read")
+}
+
+func TestLogEntryProducer_ContextCancellation(t *testing.T) {
+	// Setup producer and file to write to:
+	file, entries, cancel, teardown := setupFileAndProducer(t)
+	defer teardown()
+
+	// Write entries to log:
+	for i := 0; i < len(fixtures.raws); i++ {
+		go appendToFile(file, fixtures.raws[i])
+	}
+
+	// Read entries while channel is open:
+	ok := true
+	count := 0
+	var read logmon.LogEntry
+	for ok && count < len(fixtures.raws) {
+		read, ok = <-entries
+		if ok {
+			require.False(t, cmp.Equal(logmon.LogEntry{}, read), "entry is not empty")
 			count++
 		}
 
-		require.True(t, ok)
-		require.Equal(t, len(fixtures.raws), count)
-	})
-}
-
-func TestLogEntryProducer_Stop(t *testing.T) {
-	producer, file, teardown := givenAW3CommonLogEntryProducer(t)
-	defer teardown()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	entries, cleanup, err := producer.Run(ctx)
-	require.NoError(t, err)
-	defer cleanup()
-
-	t.Run("it stops tailing on context cancellation", func(t *testing.T) {
-		for i := 0; i < len(fixtures.raws); i++ {
-			appendToFile(t, file, fixtures.raws[i])
+		// Force producer context cancellation:
+		if count == 3 {
+			cancel()
 		}
-
-		read := mustRead(t, entries)
-		require.False(t, cmp.Equal(logmon.LogEntry{}, read))
-		cancel()
-
-		ok := true
-		count := 0
-		for ok && count < len(fixtures.raws) {
-			read, ok = <-entries
-			if ok {
-				require.False(t, cmp.Equal(logmon.LogEntry{}, read))
-				count++
-			}
-		}
-
-		require.False(t, ok)
-		require.True(t, count < len(fixtures.raws))
-	})
-}
-
-func mustRead(t *testing.T, entries <-chan logmon.LogEntry) (entry logmon.LogEntry) {
-	ticker := time.NewTicker(100 * time.Millisecond)
-	select {
-	case entry = <-entries:
-		return entry
-	case <-ticker.C:
-		t.Fatal("unable to read entry from bus")
 	}
 
-	return entry
+	require.False(t, ok, "the producer closed the channel")
+	require.True(t, count < len(fixtures.raws), "not all the written lines were read")
 }
 
-func appendToFile(t *testing.T, file *os.File, content string) {
-	b := []byte(content)
-	b = append(b, '\n')
-
-	_, err := file.Write(b)
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
-func givenAW3CommonLogEntryProducer(t *testing.T) (logmon.LogEntryProducer, *os.File, func()) {
+func setupFileAndProducer(t *testing.T) (*os.File, <-chan logmon.LogEntry, context.CancelFunc, func()) {
 	// Create a temp log file:
 	file, err := ioutil.TempFile("", "logfile_*")
-	if err != nil {
-		t.Fatalf("create temp log file: %v", err)
-	}
+	require.NoError(t, err)
+
+	// Create producer that will feed from the temp file:
+	ctx, cancel := context.WithCancel(context.Background())
+	producer := givenALogEntryProducer(file)
+	entries, cleanup, err := producer.Run(ctx)
+	require.NoError(t, err)
 
 	teardown := func() {
-		t.Log("tearing down temp file...")
+		cleanup()
+
 		file.Close()
 		os.Remove(file.Name())
 	}
+	return file, entries, cancel, teardown
+}
 
-	// Create a LogEntryProducer from the temp log file:
+func givenALogEntryProducer(file *os.File) logmon.LogEntryProducer {
 	opts := logmon.ProducerOpts{LogFilePath: file.Name(), TailWhence: io.SeekStart, TailLogger: tail.DiscardingLogger}
 	producer := logmon.NewLogEntryProducer(opts)
 
-	return producer, file, teardown
+	return producer
+}
+
+func appendToFile(file *os.File, content string) {
+	b := []byte(content)
+	b = append(b, '\n')
+	_, _ = file.Write(b)
+}
+
+func TestW3CommonLogParser(t *testing.T) {
+	parser := logmon.W3CommonLogParser{}
+	entryA, rawA := fixtures.GetOneAtRandom()
+	entryB, rawB := fixtures.GetOneAtRandom()
+
+	// Manually replace bytes value with a dash:
+	entryB.Bytes = 0
+	rawB = rawB[:strings.LastIndex(rawB, " ")+1] + "-"
+
+	for name, tc := range map[string]struct {
+		rawLogEntry   string
+		expectedEntry logmon.LogEntry
+
+		succeeds bool
+	}{
+		"it parses valid log lines": {
+			rawLogEntry:   rawA,
+			expectedEntry: entryA,
+			succeeds:      true,
+		},
+		"it fails when parsing an invalid log line": {
+			rawLogEntry:   `invalid-log-entry`,
+			expectedEntry: logmon.LogEntry{},
+			succeeds:      false,
+		},
+		"it fails when parsing an invalid date value": {
+			rawLogEntry:   `72.157.153.74 - - [xxxx] "PUT /seamless/whiteboard/holistic/mesh HTTP/2.0" 204 14813`,
+			expectedEntry: logmon.LogEntry{},
+			succeeds:      false,
+		},
+		"it defaults to zero for entries with bytes represented with a dash '-'": {
+			rawLogEntry:   rawB,
+			expectedEntry: entryB,
+			succeeds:      true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			read, _ := parser.Parse(tc.rawLogEntry)
+			// require.Equal(t, tc.succeeds, err == nil)
+			require.EqualValues(t, tc.expectedEntry, read)
+		})
+	}
 }

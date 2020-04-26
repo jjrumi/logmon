@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/hpcloud/tail"
+	"github.com/nxadm/tail"
 )
 
 type LogEntryProducer interface {
@@ -18,10 +18,11 @@ type LogEntryProducer interface {
 
 func NewLogEntryProducer(opts ProducerOpts) LogEntryProducer {
 	tailCfg := tail.Config{
-		Follow:   true,
-		Location: &tail.SeekInfo{Offset: 0, Whence: opts.TailWhence},
-		ReOpen:   true,
-		Logger:   opts.TailLogger,
+		Follow:    true,
+		Location:  &tail.SeekInfo{Offset: 0, Whence: opts.TailWhence},
+		ReOpen:    true,
+		MustExist: true,
+		Logger:    opts.TailLogger,
 	}
 
 	return logEntryProducer{
@@ -60,16 +61,14 @@ func (p logEntryProducer) Run(ctx context.Context) (<-chan LogEntry, func(), err
 					log.Printf("tail channel closed")
 					break LOOP
 				}
-				log.Printf("new line: %v", line.Text)
 
 				entry, err := p.parser.Parse(line.Text)
-				if err != nil {
-					// TODO: Inject logger
-					log.Printf("err parsing: %v", err)
-					continue
+				if err == nil {
+					log.Printf("sending: %v\n", entry)
+					entries <- entry
 				}
-				entries <- entry
 			case <-ctx.Done():
+				log.Printf("context cancelled\n")
 				break LOOP
 			}
 		}
@@ -109,10 +108,7 @@ func (p W3CommonLogParser) Parse(line string) (entry LogEntry, err error) {
 	}
 
 	var status int
-	status, err = strconv.Atoi(matches[8])
-	if err != nil {
-		return entry, fmt.Errorf("parse status from log: %w", err)
-	}
+	status, _ = strconv.Atoi(matches[8]) // The regexp ensures it's a string between [000,999].
 
 	var bytes int
 	bytes, err = strconv.Atoi(matches[9])
