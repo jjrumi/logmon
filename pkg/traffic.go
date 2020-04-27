@@ -11,12 +11,12 @@ import (
 
 // Reads LogEntry and produces TrafficStats
 type TrafficSupervisor interface {
-	Run(ctx context.Context, entries <-chan LogEntry) (<-chan TrafficStats, func())
+	Run(ctx context.Context, entries <-chan LogEntry) <-chan TrafficStats
 }
 
 func NewTrafficSupervisor(opts SupervisorOpts) TrafficSupervisor {
 	return &trafficSupervisor{
-		refreshInterval: time.Duration(opts.RefreshInterval) * time.Second,
+		refreshInterval: time.Duration(opts.RefreshInterval) * time.Millisecond,
 		registry:        list.New(),
 		mutex:           &sync.Mutex{},
 	}
@@ -32,11 +32,12 @@ type trafficSupervisor struct {
 	refreshInterval time.Duration
 }
 
-func (t *trafficSupervisor) Run(ctx context.Context, entries <-chan LogEntry) (<-chan TrafficStats, func()) {
+func (t *trafficSupervisor) Run(ctx context.Context, entries <-chan LogEntry) <-chan TrafficStats {
 	stats := make(chan TrafficStats, 1)
 	ticker := time.NewTicker(t.refreshInterval)
 
 	go func() {
+		var wg sync.WaitGroup
 	LOOP:
 		for {
 			select {
@@ -46,21 +47,20 @@ func (t *trafficSupervisor) Run(ctx context.Context, entries <-chan LogEntry) (<
 					break LOOP
 				}
 
-				// TODO: Benchmark under stress. Better to register in a new goroutine ??
 				t.registerEntry(entry)
 			case tick := <-ticker.C:
-				go t.produceStats(stats, tick)
+				wg.Add(1)
+				go t.produceStats(stats, tick, &wg)
 			case <-ctx.Done():
 				break LOOP
 			}
 		}
+
+		wg.Wait()
 		close(stats)
 	}()
 
-	cleanup := func() {
-		// TODO: Empty remaining entries from registry?
-	}
-	return stats, cleanup
+	return stats
 }
 
 func (t *trafficSupervisor) registerEntry(entry LogEntry) {
@@ -69,59 +69,69 @@ func (t *trafficSupervisor) registerEntry(entry LogEntry) {
 	t.mutex.Unlock()
 }
 
-func (t *trafficSupervisor) produceStats(statsBus chan<- TrafficStats, maxTimeLimit time.Time) {
+// produceStats considers entries within a time window.
+// it starts consuming the oldest entry and continues up to the given time limit.
+// every consumed entry is removed from the local storage.
+func (t *trafficSupervisor) produceStats(statsBus chan<- TrafficStats, maxTimeLimit time.Time, wg *sync.WaitGroup) {
+	interval := t.extractIntervalFromStorage(maxTimeLimit)
+
+	stats := NewEmptyTrafficStats()
+	for _, e := range interval {
+		stats.Update(e)
+	}
+
+	statsBus <- stats
+	wg.Done()
+}
+
+func (t *trafficSupervisor) extractIntervalFromStorage(maxTimeLimit time.Time) []LogEntry {
+	var interval []LogEntry
 	var e, prev *list.Element
 	var logEntry LogEntry
-	stats := NewTrafficStats()
 
 	t.mutex.Lock()
 	e = t.registry.Back()
-	t.mutex.Unlock()
 	for e != nil {
-		t.mutex.Lock()
 		logEntry = e.Value.(LogEntry)
-		if logEntry.Date.After(maxTimeLimit) {
-			t.mutex.Unlock()
+		if logEntry.CreatedAt.After(maxTimeLimit) {
 			break
 		}
 
 		prev = e.Prev()
-		t.registry.Remove(e)
-		t.mutex.Unlock()
+		interval = append(interval, t.registry.Remove(e).(LogEntry))
 		e = prev
-
-		stats.Update(logEntry)
 	}
+	t.mutex.Unlock()
 
-	statsBus <- stats
+	return interval
 }
 
 type TrafficStats struct {
-	sectionHits     map[string]int
-	methodHits      map[string]int
-	statusClassHits map[string]int
+	SectionHits     map[string]int
+	MethodHits      map[string]int
+	StatusClassHits map[string]int
 	Bytes           int
 	TotalReqs       int
 }
 
-func NewTrafficStats() TrafficStats {
+func NewEmptyTrafficStats() TrafficStats {
 	return TrafficStats{
-		sectionHits:     make(map[string]int),
-		methodHits:      make(map[string]int),
-		statusClassHits: make(map[string]int),
+		SectionHits:     make(map[string]int),
+		MethodHits:      make(map[string]int),
+		StatusClassHits: make(map[string]int),
 	}
 }
 
 func (s *TrafficStats) Update(entry LogEntry) {
-	s.sectionHits[s.parseSection(entry.ReqPath)]++
-	s.methodHits[entry.ReqMethod]++
-	s.statusClassHits[s.parseStatusClass(entry.StatusCode)]++
+	s.SectionHits[s.parseSection(entry.ReqPath)]++
+	s.MethodHits[entry.ReqMethod]++
+	s.StatusClassHits[s.parseStatusClass(entry.StatusCode)]++
 	s.Bytes += entry.Bytes
 	s.TotalReqs++
 }
 
 func (s *TrafficStats) parseSection(path string) string {
-	if path[0] != '/' {
+	if len(path) < 1 || path[0] != '/' {
 		path = "/" + path
 	}
 

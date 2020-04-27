@@ -4,10 +4,13 @@ package logmon_test
 import (
 	"io/ioutil"
 	"math/rand"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/sirupsen/logrus/hooks/test"
 
 	logmon "github.com/jjrumi/accesslogmonitor/pkg"
@@ -42,10 +45,14 @@ func (f *LogEntryFixtures) GetOneAtRandom() (logmon.LogEntry, string) {
 	max := len(f.registry) - 1
 	i := rand.Intn(max-min) + min
 
-	return f.registry[i], f.raws[i]
+	// Fix the creation time on each call to this method:
+	entry := f.registry[i]
+	entry.CreatedAt = time.Now()
+
+	return entry, f.raws[i]
 }
 
-func flushLogs(t *testing.T, hook *test.Hook) {
+func flushLogs(t *testing.T) {
 	func(hook *test.Hook) {
 		t.Log("log dump:")
 		entries := hook.AllEntries()
@@ -54,4 +61,22 @@ func flushLogs(t *testing.T, hook *test.Hook) {
 		}
 		hook.Reset()
 	}(hook)
+}
+
+func appendToFile(file *os.File, content string) {
+	b := []byte(content)
+	b = append(b, '\n')
+	_, _ = file.Write(b)
+}
+
+func equalTrafficStats(a logmon.TrafficStats, b logmon.TrafficStats) bool {
+	return cmp.Equal(a, b)
+}
+
+func equalLogEntries(a logmon.LogEntry, b logmon.LogEntry) bool {
+	return cmp.Equal(
+		a,
+		b,
+		cmpopts.IgnoreFields(logmon.LogEntry{}, "CreatedAt"),
+	)
 }

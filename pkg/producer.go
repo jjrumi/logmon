@@ -116,15 +116,15 @@ func (p W3CommonLogParser) Parse(line string) (entry LogEntry, err error) {
 		bytes = 0
 	}
 
-	return LogEntry{
-		RemoteHost:  matches[1],
-		UserID:      matches[2],
-		Username:    matches[3],
-		Date:        date,
-		ReqMethod:   matches[5],
-		ReqPath:     matches[6],
-		ReqProtocol: matches[7],
-		StatusCode:  status,
-		Bytes:       bytes,
-	}, nil
+	return NewLogEntry(
+		matches[1],
+		matches[2],
+		matches[3],
+		date,
+		matches[5],
+		matches[6],
+		matches[7],
+		status,
+		bytes,
+	), nil
 }

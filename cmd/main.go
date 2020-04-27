@@ -61,7 +61,7 @@ func main() {
 
 	opts := logmon.MonitorOpts{
 		LogFilePath:     logFilePath,
-		RefreshInterval: refreshInterval,
+		RefreshInterval: refreshInterval * 1000, // Store refresh interval in ms.
 		AlertThreshold:  alertThreshold,
 		AlertWindow:     alertWindow,
 	}

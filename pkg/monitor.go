@@ -32,6 +32,35 @@ type LogEntry struct {
 	ReqProtocol string    // The HTTP request protocol.
 	StatusCode  int       // The HTTP status code.
 	Bytes       int       // The content-length of the document transferred.
+	CreatedAt   time.Time // Time mark of the creation of this type.
+}
+
+func NewEmptyLogEntry() LogEntry {
+	return LogEntry{CreatedAt: time.Now()}
+}
+func NewLogEntry(
+	host string,
+	userID string,
+	userName string,
+	date time.Time,
+	method string,
+	path string,
+	protocol string,
+	status int,
+	bytes int,
+) LogEntry {
+	return LogEntry{
+		host,
+		userID,
+		userName,
+		date,
+		method,
+		path,
+		protocol,
+		status,
+		bytes,
+		time.Now(),
+	}
 }
 
 type AlertsManager struct {
@@ -42,7 +71,7 @@ type UI struct {
 
 func NewMonitor(opts MonitorOpts) *Monitor {
 	producerOpts := ProducerOpts{opts.LogFilePath, io.SeekEnd, nil}
-	producer:= NewLogEntryProducer(producerOpts)
+	producer := NewLogEntryProducer(producerOpts)
 
 	supervisorOpts := SupervisorOpts{opts.RefreshInterval}
 	supervisor := NewTrafficSupervisor(supervisorOpts)
@@ -61,7 +90,7 @@ func (m Monitor) Run(ctx context.Context) (func(), error) {
 	if err != nil {
 		return nil, fmt.Errorf("starting log entry producer: %w", err)
 	}
-	stats, cleanupSupervisor := m.supervisor.Run(ctx, entries)
+	stats := m.supervisor.Run(ctx, entries)
 
 	/*
 		alerts := m.alerts.Run(ctx, statsForAlerts)
@@ -94,7 +123,6 @@ func (m Monitor) Run(ctx context.Context) (func(), error) {
 
 	return func() {
 		cleanupProducer()
-		cleanupSupervisor()
 
 		// m.alertsMng.Cleanup()
 		// m.ui.Cleanup()

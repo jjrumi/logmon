@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/nxadm/tail"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -61,7 +60,7 @@ func TestLogEntryProducer_ForNLines(t *testing.T) {
 	for ok && count < len(fixtures.raws) {
 		read, ok = <-entries
 		if ok {
-			require.False(t, cmp.Equal(logmon.LogEntry{}, read), "entry is not empty")
+			require.False(t, equalLogEntries(read, logmon.NewEmptyLogEntry()), "entry is not empty")
 		}
 		count++
 	}
@@ -87,7 +86,7 @@ func TestLogEntryProducer_ContextCancellation(t *testing.T) {
 	for ok && count < len(fixtures.raws) {
 		read, ok = <-entries
 		if ok {
-			require.False(t, cmp.Equal(logmon.LogEntry{}, read), "entry is not empty")
+			require.False(t, equalLogEntries(read, logmon.NewEmptyLogEntry()), "entry is not empty")
 			count++
 		}
 
@@ -128,18 +127,12 @@ func givenALogEntryProducer(file *os.File) logmon.LogEntryProducer {
 	return producer
 }
 
-func appendToFile(file *os.File, content string) {
-	b := []byte(content)
-	b = append(b, '\n')
-	_, _ = file.Write(b)
-}
-
 func TestW3CommonLogParser(t *testing.T) {
 	parser := logmon.W3CommonLogParser{}
 	entryA, rawA := fixtures.GetOneAtRandom()
 	entryB, rawB := fixtures.GetOneAtRandom()
 
-	// Manually replace bytes value with a dash:
+	// Manually replace bytes transferred value with a dash:
 	entryB.Bytes = 0
 	rawB = rawB[:strings.LastIndex(rawB, " ")+1] + "-"
 
@@ -156,12 +149,12 @@ func TestW3CommonLogParser(t *testing.T) {
 		},
 		"it fails when parsing an invalid log line": {
 			rawLogEntry:   `invalid-log-entry`,
-			expectedEntry: logmon.LogEntry{},
+			expectedEntry: logmon.NewEmptyLogEntry(),
 			succeeds:      false,
 		},
 		"it fails when parsing an invalid date value": {
 			rawLogEntry:   `72.157.153.74 - - [xxxx] "PUT /seamless/whiteboard/holistic/mesh HTTP/2.0" 204 14813`,
-			expectedEntry: logmon.LogEntry{},
+			expectedEntry: logmon.NewEmptyLogEntry(),
 			succeeds:      false,
 		},
 		"it defaults to zero for entries with bytes represented with a dash '-'": {
@@ -171,9 +164,9 @@ func TestW3CommonLogParser(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			read, _ := parser.Parse(tc.rawLogEntry)
-			// require.Equal(t, tc.succeeds, err == nil)
-			require.EqualValues(t, tc.expectedEntry, read)
+			read, err := parser.Parse(tc.rawLogEntry)
+			require.Equal(t, tc.succeeds, err == nil)
+			require.True(t, equalLogEntries(read, tc.expectedEntry))
 		})
 	}
 }
