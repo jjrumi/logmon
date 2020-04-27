@@ -18,7 +18,6 @@ func NewTrafficSupervisor(opts SupervisorOpts) TrafficSupervisor {
 	return &trafficSupervisor{
 		refreshInterval: time.Duration(opts.RefreshInterval) * time.Millisecond,
 		registry:        list.New(),
-		mutex:           &sync.Mutex{},
 	}
 }
 
@@ -27,8 +26,7 @@ type SupervisorOpts struct {
 }
 
 type trafficSupervisor struct {
-	registry        *list.List
-	mutex           *sync.Mutex
+	registry        *list.List // All read/write is done within a single goroutine, inside Run()
 	refreshInterval time.Duration
 }
 
@@ -48,9 +46,14 @@ func (t *trafficSupervisor) Run(ctx context.Context, entries <-chan LogEntry) <-
 				}
 
 				t.registerEntry(entry)
-			case tick := <-ticker.C:
+			case <-ticker.C:
+				// Keep a reference to the current list of entries.
+				// Create a new list for the next tick.
+				interval := t.registry
+				t.registry = list.New()
+
 				wg.Add(1)
-				go t.produceStats(stats, tick, &wg)
+				go t.produceStats(interval, stats, &wg)
 			case <-ctx.Done():
 				break LOOP
 			}
@@ -64,17 +67,13 @@ func (t *trafficSupervisor) Run(ctx context.Context, entries <-chan LogEntry) <-
 }
 
 func (t *trafficSupervisor) registerEntry(entry LogEntry) {
-	t.mutex.Lock()
 	t.registry.PushFront(entry)
-	t.mutex.Unlock()
 }
 
 // produceStats considers entries within a time window.
 // it starts consuming the oldest entry and continues up to the given time limit.
 // every consumed entry is removed from the local storage.
-func (t *trafficSupervisor) produceStats(statsBus chan<- TrafficStats, maxTimeLimit time.Time, wg *sync.WaitGroup) {
-	interval := t.extractIntervalFromStorage(maxTimeLimit)
-
+func (t *trafficSupervisor) produceStats(interval *list.List, statsBus chan<- TrafficStats, wg *sync.WaitGroup) {
 	stats := NewEmptyTrafficStats()
 
 	var e, prev *list.Element
@@ -89,28 +88,6 @@ func (t *trafficSupervisor) produceStats(statsBus chan<- TrafficStats, maxTimeLi
 
 	statsBus <- stats
 	wg.Done()
-}
-
-func (t *trafficSupervisor) extractIntervalFromStorage(maxTimeLimit time.Time) *list.List {
-	interval := list.New()
-	var e, prev *list.Element
-	var logEntry LogEntry
-
-	t.mutex.Lock()
-	e = t.registry.Back()
-	for e != nil {
-		logEntry = e.Value.(LogEntry)
-		if logEntry.CreatedAt.After(maxTimeLimit) {
-			break
-		}
-
-		prev = e.Prev()
-		interval.PushFront(t.registry.Remove(e))
-		e = prev
-	}
-	t.mutex.Unlock()
-
-	return interval
 }
 
 type TrafficStats struct {
