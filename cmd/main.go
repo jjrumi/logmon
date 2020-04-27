@@ -71,6 +71,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	cleanup, err := monitor.Run(ctx)
 	if err != nil {
+		// TODO: log.Fatal do not log errors... it logs infos.
 		log.Fatal(err)
 	}
 
@@ -78,7 +79,6 @@ func main() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 
-	// TODO: Handle interruption in a goroutine ??
 	<-c
 	cancel()
 	cleanup()

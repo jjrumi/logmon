@@ -76,16 +76,23 @@ func (t *trafficSupervisor) produceStats(statsBus chan<- TrafficStats, maxTimeLi
 	interval := t.extractIntervalFromStorage(maxTimeLimit)
 
 	stats := NewEmptyTrafficStats()
-	for _, e := range interval {
-		stats.Update(e)
+
+	var e, prev *list.Element
+	e = interval.Back()
+	for e != nil {
+		stats.Update(e.Value.(LogEntry))
+
+		prev = e.Prev()
+		interval.Remove(e)
+		e = prev
 	}
 
 	statsBus <- stats
 	wg.Done()
 }
 
-func (t *trafficSupervisor) extractIntervalFromStorage(maxTimeLimit time.Time) []LogEntry {
-	var interval []LogEntry
+func (t *trafficSupervisor) extractIntervalFromStorage(maxTimeLimit time.Time) *list.List {
+	interval := list.New()
 	var e, prev *list.Element
 	var logEntry LogEntry
 
@@ -98,7 +105,7 @@ func (t *trafficSupervisor) extractIntervalFromStorage(maxTimeLimit time.Time) [
 		}
 
 		prev = e.Prev()
-		interval = append(interval, t.registry.Remove(e).(LogEntry))
+		interval.PushFront(t.registry.Remove(e))
 		e = prev
 	}
 	t.mutex.Unlock()

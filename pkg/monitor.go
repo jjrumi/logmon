@@ -96,12 +96,7 @@ func (m Monitor) Run(ctx context.Context) (func(), error) {
 		alerts := m.alerts.Run(ctx, statsForAlerts)
 		m.ui.Run(ctx, statsForUI, alerts)
 
-		// Broadcast stats
-		for {
-			msg := <-stats
-			statsForAlerts <- msg
-			statsForUI <- msg
-		}
+
 	*/
 
 	go func() {
@@ -113,8 +108,18 @@ func (m Monitor) Run(ctx context.Context) (func(), error) {
 					log.Printf("stats channel closed")
 					break LOOP
 				}
-				log.Printf("stats entry: %+v", entry)
-				// TODO: Send stats to both Alerts Manager & UI
+				// TODO: Move fmt.Printx to the UI
+				fmt.Printf("%v\n", entry)
+				// TODO:
+				//  - Broadcast stats
+				//  - Send stats to both Alerts Manager & UI
+				/*
+					for {
+						msg := <-stats
+						statsForAlerts <- msg
+						statsForUI <- msg
+					}
+				*/
 			case <-ctx.Done():
 				break LOOP
 			}
