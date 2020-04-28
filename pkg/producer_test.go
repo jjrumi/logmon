@@ -38,7 +38,7 @@ func TestMain(m *testing.M) {
 func TestLogEntryProducer_WithInvalidFile(t *testing.T) {
 	opts := logmon.ProducerOpts{LogFilePath: "invalid-file-path"}
 	producer := logmon.NewLogEntryProducer(opts)
-	_, _, err := producer.Run(context.Background())
+	_, err := producer.Setup()
 	require.Error(t, err)
 }
 
@@ -108,8 +108,10 @@ func setupFileAndProducer(t *testing.T) (*os.File, <-chan logmon.LogEntry, conte
 	// Create producer that will feed from the temp file:
 	ctx, cancel := context.WithCancel(context.Background())
 	producer := givenALogEntryProducer(file)
-	entries, cleanup, err := producer.Run(ctx)
+	cleanup, err := producer.Setup()
 	require.NoError(t, err)
+	entries := make(chan logmon.LogEntry)
+	go producer.Run(ctx, entries)
 
 	teardown := func() {
 		cleanup()

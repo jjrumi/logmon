@@ -14,7 +14,7 @@ func TestTrafficSupervisor_GeneratesStatsWithTraffic(t *testing.T) {
 	// Fill up entries channel with test data.
 	numEntries := 3
 	entries := make(chan logmon.LogEntry, numEntries)
-	defer close(entries)
+	stats := make(chan logmon.TrafficStats)
 
 	expectedBytes := 0
 	for i := 0; i < numEntries; i++ {
@@ -25,7 +25,8 @@ func TestTrafficSupervisor_GeneratesStatsWithTraffic(t *testing.T) {
 
 	// Run supervisor:
 	ctx, cancel := context.WithCancel(context.Background())
-	stats := givenATrafficSupervisor(50).Run(ctx, entries)
+	supervisor := givenATrafficSupervisor(50)
+	go supervisor.Run(ctx, entries, stats)
 
 	// Ensure produced stats are correct.
 	data, ok := <-stats
@@ -40,17 +41,17 @@ func TestTrafficSupervisor_GeneratesStatsWithTraffic(t *testing.T) {
 }
 
 func TestTrafficSupervisor_GeneratesStatsWithContinuousTraffic(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-
 	entries := make(chan logmon.LogEntry)
-	defer close(entries)
+	stats := make(chan logmon.TrafficStats)
 
 	// Simulate a continuous traffic stream - generate at most `maxEntries` entries:
 	maxEntries := 10000
+	ctx, cancel := context.WithCancel(context.Background())
 	go givenContinuousLogEntryWrites(ctx, entries, maxEntries)
 
 	// Run a producer that crunches stats every 50ms:
-	stats := givenATrafficSupervisor(50).Run(ctx, entries)
+	supervisor := givenATrafficSupervisor(50)
+	go supervisor.Run(ctx, entries, stats)
 
 	// Capture all generated stats and keep track of the registered requests:
 	captured := 0
@@ -88,9 +89,10 @@ func givenContinuousLogEntryWrites(ctx context.Context, dst chan<- logmon.LogEnt
 func TestTrafficSupervisor_GeneratesEmptyStatsWithoutTraffic(t *testing.T) {
 	// Run supervisor:
 	ctx, cancel := context.WithCancel(context.Background())
+	supervisor := givenATrafficSupervisor(50)
 	entries := make(chan logmon.LogEntry)
-	defer close(entries)
-	stats := givenATrafficSupervisor(50).Run(ctx, entries)
+	stats := make(chan logmon.TrafficStats)
+	go supervisor.Run(ctx, entries, stats)
 
 	// Ensure produced stats are correct.
 	data, ok := <-stats
@@ -105,9 +107,14 @@ func TestTrafficSupervisor_GeneratesEmptyStatsWithoutTraffic(t *testing.T) {
 }
 
 func TestTrafficSupervisor_ReturnsWhenInputChannelClosed(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Run supervisor:
+	supervisor := givenATrafficSupervisor(50)
 	entries := make(chan logmon.LogEntry)
-	stats := givenATrafficSupervisor(50).Run(context.Background(), entries)
+	stats := make(chan logmon.TrafficStats)
+	go supervisor.Run(ctx, entries, stats)
 
 	// Validate shutdown - output channel ought to be closed:
 	close(entries)
@@ -116,7 +123,7 @@ func TestTrafficSupervisor_ReturnsWhenInputChannelClosed(t *testing.T) {
 }
 
 func givenATrafficSupervisor(intervalMs int) logmon.TrafficSupervisor {
-	opts := logmon.SupervisorOpts{RefreshInterval: intervalMs}
+	opts := logmon.TrafficSupervisorOpts{RefreshInterval: intervalMs}
 	supervisor := logmon.NewTrafficSupervisor(opts)
 	return supervisor
 }

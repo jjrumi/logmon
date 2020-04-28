@@ -13,7 +13,8 @@ import (
 )
 
 type LogEntryProducer interface {
-	Run(ctx context.Context) (<-chan LogEntry, func(), error)
+	Setup() (func(), error)
+	Run(ctx context.Context, entries chan<- LogEntry)
 }
 
 func NewLogEntryProducer(opts ProducerOpts) LogEntryProducer {
@@ -25,10 +26,10 @@ func NewLogEntryProducer(opts ProducerOpts) LogEntryProducer {
 		Logger:    opts.TailLogger,
 	}
 
-	return logEntryProducer{
-		filename: opts.LogFilePath,
-		tailCfg:  tailCfg,
-		parser:   W3CommonLogParser{},
+	return &logEntryProducer{
+		filename:   opts.LogFilePath,
+		tailCfg:    tailCfg,
+		parser:     W3CommonLogParser{},
 	}
 }
 
@@ -39,49 +40,49 @@ type ProducerOpts struct {
 }
 
 type logEntryProducer struct {
-	filename string
-	tailCfg  tail.Config
-	parser   W3CommonLogParser
+	filename   string
+	tailCfg    tail.Config
+	tail       *tail.Tail
+	parser     W3CommonLogParser
 }
 
-func (p logEntryProducer) Run(ctx context.Context) (<-chan LogEntry, func(), error) {
-	watcher, err := tail.TailFile(p.filename, p.tailCfg)
+func (p *logEntryProducer) Setup() (func(), error) {
+	var err error
+	p.tail, err = tail.TailFile(p.filename, p.tailCfg)
 	if err != nil {
-		return nil, nil, fmt.Errorf("creating log tail: %w", err)
+		return nil, fmt.Errorf("creating log tail: %w", err)
 	}
-
-	entries := make(chan LogEntry)
-
-	go func() {
-	LOOP:
-		for {
-			select {
-			case line, ok := <-watcher.Lines:
-				if !ok {
-					log.Printf("tail channel closed")
-					break LOOP
-				}
-
-				entry, err := p.parser.Parse(line.Text)
-				if err == nil {
-					log.Printf("sending: %v\n", entry)
-					entries <- entry
-				}
-			case <-ctx.Done():
-				log.Printf("context cancelled\n")
-				break LOOP
-			}
-		}
-		log.Printf("closing entries channel\n")
-		close(entries)
-	}()
 
 	cleanup := func() {
 		log.Printf("cleaning up Producer...\n")
-		watcher.Cleanup()
+		p.tail.Cleanup()
 	}
 
-	return entries, cleanup, nil
+	return cleanup, nil
+}
+
+func (p logEntryProducer) Run(ctx context.Context, entries chan<- LogEntry) {
+LOOP:
+	for {
+		select {
+		case line, ok := <-p.tail.Lines:
+			if !ok {
+				log.Printf("tail channel closed")
+				break LOOP
+			}
+
+			entry, err := p.parser.Parse(line.Text)
+			if err == nil {
+				log.Printf("sending: %v\n", entry)
+				entries <- entry
+			}
+		case <-ctx.Done():
+			log.Printf("context cancelled\n")
+			break LOOP
+		}
+	}
+	log.Printf("closing entries channel\n")
+	close(entries)
 }
 
 type W3CommonLogParser struct{}

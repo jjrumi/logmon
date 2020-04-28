@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/sirupsen/logrus"
 
@@ -20,7 +19,7 @@ var (
 	logFilePath     string
 	refreshInterval int
 	alertThreshold  int
-	alertWindow     time.Duration
+	alertWindow     int
 )
 
 func init() {
@@ -47,7 +46,7 @@ func setArguments() {
 	flag.StringVar(&logFilePath, "source", "/tmp/access.log", "log file path to monitor")
 	flag.IntVar(&refreshInterval, "refresh", 10, "refresh interval at which traffic stats are computed, in seconds")
 	flag.IntVar(&alertThreshold, "threshold", 10, "alert condition, in requests per second")
-	flag.DurationVar(&alertWindow, "window", 2*time.Minute, "time period to check the alert condition, in minutes")
+	flag.IntVar(&alertWindow, "window", 120, "time period to check the alert condition, in seconds")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [OPTIONS]\n\n", os.Args[0])
@@ -61,7 +60,7 @@ func main() {
 
 	opts := logmon.MonitorOpts{
 		LogFilePath:     logFilePath,
-		RefreshInterval: refreshInterval * 1000, // Store refresh interval in ms.
+		RefreshInterval: refreshInterval,
 		AlertThreshold:  alertThreshold,
 		AlertWindow:     alertWindow,
 	}

@@ -11,69 +11,62 @@ import (
 
 // Reads LogEntry and produces TrafficStats
 type TrafficSupervisor interface {
-	Run(ctx context.Context, entries <-chan LogEntry) <-chan TrafficStats
+	Run(ctx context.Context, entries <-chan LogEntry, stats chan<- TrafficStats)
 }
 
-func NewTrafficSupervisor(opts SupervisorOpts) TrafficSupervisor {
+func NewTrafficSupervisor(opts TrafficSupervisorOpts) TrafficSupervisor {
 	return &trafficSupervisor{
 		refreshInterval: time.Duration(opts.RefreshInterval) * time.Millisecond,
-		registry:        list.New(),
+		statsBuffer:     list.New(),
+		statsOut:        make(chan TrafficStats),
 	}
 }
 
-type SupervisorOpts struct {
+type TrafficSupervisorOpts struct {
 	RefreshInterval int
 }
 
 type trafficSupervisor struct {
-	registry        *list.List // All read/write is done within a single goroutine, inside Run()
+	statsBuffer     *list.List // No need to lock, all operations are done within the Run()'s goroutine.
 	refreshInterval time.Duration
+	statsOut        chan TrafficStats
 }
 
-func (t *trafficSupervisor) Run(ctx context.Context, entries <-chan LogEntry) <-chan TrafficStats {
-	stats := make(chan TrafficStats, 1)
+func (t *trafficSupervisor) Run(ctx context.Context, entries <-chan LogEntry, stats chan<- TrafficStats) {
+	var wg sync.WaitGroup
 	ticker := time.NewTicker(t.refreshInterval)
 
-	go func() {
-		var wg sync.WaitGroup
-	LOOP:
-		for {
-			select {
-			case entry, ok := <-entries:
-				if !ok {
-					log.Printf("producer channel closed")
-					break LOOP
-				}
-
-				t.registerEntry(entry)
-			case <-ticker.C:
-				// Keep a reference to the current list of entries.
-				// Create a new list for the next tick.
-				interval := t.registry
-				t.registry = list.New()
-
-				wg.Add(1)
-				go t.produceStats(interval, stats, &wg)
-			case <-ctx.Done():
+LOOP:
+	for {
+		select {
+		case entry, ok := <-entries:
+			if !ok {
+				log.Printf("producer channel closed")
 				break LOOP
 			}
+
+			t.statsBuffer.PushFront(entry)
+		case <-ticker.C:
+			// Keep a reference to the current list of entries.
+			// Create a new list for the next tick.
+			interval := t.statsBuffer
+			t.statsBuffer = list.New()
+
+			wg.Add(1)
+			go t.produceStats(&wg, interval, stats)
+		case <-ctx.Done():
+			break LOOP
 		}
+	}
 
-		wg.Wait()
-		close(stats)
-	}()
-
-	return stats
-}
-
-func (t *trafficSupervisor) registerEntry(entry LogEntry) {
-	t.registry.PushFront(entry)
+	wg.Wait()
+	close(stats)
 }
 
 // produceStats considers entries within a time window.
 // it starts consuming the oldest entry and continues up to the given time limit.
 // every consumed entry is removed from the local storage.
-func (t *trafficSupervisor) produceStats(interval *list.List, statsBus chan<- TrafficStats, wg *sync.WaitGroup) {
+func (t *trafficSupervisor) produceStats(wg *sync.WaitGroup, interval *list.List, statsC chan<- TrafficStats) {
 	stats := NewEmptyTrafficStats()
 
 	var e, prev *list.Element
@@ -86,7 +79,7 @@ func (t *trafficSupervisor) produceStats(interval *list.List, statsBus chan<- Tr
 		e = prev
 	}
 
-	statsBus <- stats
+	statsC <- stats
 	wg.Done()
 }
 

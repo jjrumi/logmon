@@ -4,6 +4,7 @@ SHELL := /bin/bash
 .SHELLFLAGS := -ec
 
 BIN=$(CURDIR)/bin
+ACCESS_LOG=/tmp/access.log
 
 go-install-vendor: ## Install dependencies
 	go mod vendor
@@ -16,3 +17,6 @@ go-build: ## Build the log monitor binary
 		-mod=vendor \
 		-o $(BIN)/logmon \
 		./cmd
+
+sim-slow-traffic: ## Continuously write log entries into the $ACCESS_LOG file
+	flog -n 10 -l -d 2 -s 1 >> $(ACCESS_LOG)

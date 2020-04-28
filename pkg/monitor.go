@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"time"
 )
 
@@ -12,12 +11,14 @@ type MonitorOpts struct {
 	LogFilePath     string
 	RefreshInterval int
 	AlertThreshold  int
-	AlertWindow     time.Duration
+	AlertWindow     int
 }
 
 type Monitor struct {
-	producer   LogEntryProducer
-	supervisor TrafficSupervisor
+	producer LogEntryProducer
+	traffic  TrafficSupervisor
+	alert    AlertSupervisor
+	ui       UI
 }
 
 // LogEntry represents a line in a log file that follows a common format as in:
@@ -63,73 +64,59 @@ func NewLogEntry(
 	}
 }
 
-type AlertsManager struct {
-}
-
-type UI struct {
-}
-
 func NewMonitor(opts MonitorOpts) *Monitor {
-	producerOpts := ProducerOpts{opts.LogFilePath, io.SeekEnd, nil}
-	producer := NewLogEntryProducer(producerOpts)
+	producer := NewLogEntryProducer(
+		ProducerOpts{opts.LogFilePath, io.SeekEnd, nil},
+	)
 
-	supervisorOpts := SupervisorOpts{opts.RefreshInterval}
-	supervisor := NewTrafficSupervisor(supervisorOpts)
+	traffic := NewTrafficSupervisor(
+		TrafficSupervisorOpts{opts.RefreshInterval * 1000 /* in milliseconds */},
+	)
 
-	// TODO: Create an alerts manager.
+	alert := NewAlertsSupervisor(
+		AlertSupervisorOpts{opts.AlertThreshold, opts.RefreshInterval, opts.AlertWindow},
+	)
 
-	// TODO: Create a UI.
-
-	// TODO: Yield flow control to UI ??
-
-	return &Monitor{producer: producer, supervisor: supervisor}
+	return &Monitor{producer: producer, traffic: traffic, alert: alert, ui: NewUI()}
 }
 
 func (m Monitor) Run(ctx context.Context) (func(), error) {
-	entries, cleanupProducer, err := m.producer.Run(ctx)
+	cleanupProducer, err := m.producer.Setup()
 	if err != nil {
-		return nil, fmt.Errorf("starting log entry producer: %w", err)
+		return nil, fmt.Errorf("preparing log entry producer: %w", err)
 	}
-	stats := m.supervisor.Run(ctx, entries)
 
-	/*
-		alerts := m.alerts.Run(ctx, statsForAlerts)
-		m.ui.Run(ctx, statsForUI, alerts)
+	logEntries := make(chan LogEntry)
+	go m.producer.Run(ctx, logEntries)
 
+	trafficStats := make(chan TrafficStats)
+	go m.traffic.Run(ctx, logEntries, trafficStats)
 
-	*/
+	statsForAlerts, statsForUI := broadcastTrafficStats(ctx, trafficStats)
 
-	go func() {
-	LOOP:
-		for {
-			select {
-			case entry, ok := <-stats:
-				if !ok {
-					log.Printf("stats channel closed")
-					break LOOP
-				}
-				// TODO: Move fmt.Printx to the UI
-				fmt.Printf("%v\n", entry)
-				// TODO:
-				//  - Broadcast stats
-				//  - Send stats to both Alerts Manager & UI
-				/*
-					for {
-						msg := <-stats
-						statsForAlerts <- msg
-						statsForUI <- msg
-					}
-				*/
-			case <-ctx.Done():
-				break LOOP
-			}
-		}
-	}()
+	alerts := make(chan ThresholdAlert)
+	go m.alert.Run(ctx, statsForAlerts, alerts)
+	go m.ui.Run(ctx, statsForUI, alerts)
 
 	return func() {
 		cleanupProducer()
-
-		// m.alertsMng.Cleanup()
-		// m.ui.Cleanup()
 	}, nil
+}
+
+// broadcastTrafficStats reads stats from the Traffic Supervisor and broadcasts them into two channels.
+func broadcastTrafficStats(ctx context.Context, stats chan TrafficStats) (chan TrafficStats, chan TrafficStats) {
+	statsForAlerts := make(chan TrafficStats)
+	statsForUI := make(chan TrafficStats)
+	go func() {
+		for {
+			select {
+			case msg := <-stats:
+				statsForAlerts <- msg
+				statsForUI <- msg
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return statsForAlerts, statsForUI
 }

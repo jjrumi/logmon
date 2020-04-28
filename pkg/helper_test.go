@@ -16,6 +16,7 @@ import (
 	logmon "github.com/jjrumi/accesslogmonitor/pkg"
 )
 
+// LogEntryFixtures contains random log entries to facilitate testing.
 type LogEntryFixtures struct {
 	registry []logmon.LogEntry
 	raws     []string
