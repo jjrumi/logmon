@@ -27,9 +27,9 @@ func NewLogEntryProducer(opts ProducerOpts) LogEntryProducer {
 	}
 
 	return &logEntryProducer{
-		filename:   opts.LogFilePath,
-		tailCfg:    tailCfg,
-		parser:     W3CommonLogParser{},
+		filename: opts.LogFilePath,
+		tailCfg:  tailCfg,
+		parser:   W3CommonLogParser{},
 	}
 }
 
@@ -40,10 +40,10 @@ type ProducerOpts struct {
 }
 
 type logEntryProducer struct {
-	filename   string
-	tailCfg    tail.Config
-	tail       *tail.Tail
-	parser     W3CommonLogParser
+	filename string
+	tailCfg  tail.Config
+	tail     *tail.Tail
+	parser   W3CommonLogParser
 }
 
 func (p *logEntryProducer) Setup() (func(), error) {
