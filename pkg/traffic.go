@@ -27,7 +27,7 @@ type TrafficSupervisorOpts struct {
 }
 
 type trafficSupervisor struct {
-	statsBuffer     *list.List // No need to lock, all operations are done within the Run()'s goroutine.
+	statsBuffer     *list.List
 	refreshInterval time.Duration
 	statsOut        chan TrafficStats
 }

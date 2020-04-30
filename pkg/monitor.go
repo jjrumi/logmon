@@ -77,7 +77,11 @@ func NewMonitor(opts MonitorOpts) *Monitor {
 		AlertSupervisorOpts{opts.AlertThreshold, opts.RefreshInterval, opts.AlertWindow},
 	)
 
-	return &Monitor{producer: producer, traffic: traffic, alert: alert, ui: NewUI()}
+	ui := NewUI(
+		UIOpts{Refresh: opts.RefreshInterval, AlertThreshold: opts.AlertThreshold, AlertWindow: opts.AlertWindow},
+	)
+
+	return &Monitor{producer: producer, traffic: traffic, alert: alert, ui: ui}
 }
 
 func (m Monitor) Run(ctx context.Context) (func(), error) {
