@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/sirupsen/logrus"
 
@@ -64,22 +62,15 @@ func main() {
 		AlertThreshold:  alertThreshold,
 		AlertWindow:     alertWindow,
 	}
-
 	monitor := logmon.NewMonitor(opts)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cleanup, err := monitor.Run(ctx)
+	err := monitor.Run(ctx)
 	if err != nil {
 		// TODO: log.Fatal do not log errors... it logs infos.
 		log.Fatal(err)
 	}
 
-	// Listen for an interrupt or terminate signal from the OS.
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-
-	<-c
 	cancel()
-	cleanup()
 	os.Exit(0)
 }

@@ -4,6 +4,7 @@ go 1.14
 
 require (
 	github.com/fsnotify/fsnotify v1.4.9 // indirect
+	github.com/gizak/termui/v3 v3.1.0
 	github.com/google/go-cmp v0.4.0
 	github.com/nxadm/tail v1.4.4
 	github.com/sirupsen/logrus v1.5.0

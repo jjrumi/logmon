@@ -15,10 +15,10 @@ type MonitorOpts struct {
 }
 
 type Monitor struct {
-	producer LogEntryProducer
-	traffic  TrafficSupervisor
-	alert    AlertSupervisor
-	ui       UI
+	fileWatcher LogEntryProducer
+	traffic     TrafficSupervisor
+	alert       AlertSupervisor
+	ui          UI
 }
 
 // LogEntry represents a line in a log file that follows a common format as in:
@@ -81,17 +81,18 @@ func NewMonitor(opts MonitorOpts) *Monitor {
 		UIOpts{Refresh: opts.RefreshInterval, AlertThreshold: opts.AlertThreshold, AlertWindow: opts.AlertWindow},
 	)
 
-	return &Monitor{producer: producer, traffic: traffic, alert: alert, ui: ui}
+	return &Monitor{fileWatcher: producer, traffic: traffic, alert: alert, ui: ui}
 }
 
-func (m Monitor) Run(ctx context.Context) (func(), error) {
-	cleanupProducer, err := m.producer.Setup()
+func (m Monitor) Run(ctx context.Context) error {
+	cleanupProducer, err := m.fileWatcher.Setup()
 	if err != nil {
-		return nil, fmt.Errorf("preparing log entry producer: %w", err)
+		return fmt.Errorf("preparing log entry producer: %w", err)
 	}
+	defer cleanupProducer()
 
 	logEntries := make(chan LogEntry)
-	go m.producer.Run(ctx, logEntries)
+	go m.fileWatcher.Run(ctx, logEntries)
 
 	trafficStats := make(chan TrafficStats)
 	go m.traffic.Run(ctx, logEntries, trafficStats)
@@ -100,11 +101,10 @@ func (m Monitor) Run(ctx context.Context) (func(), error) {
 
 	alerts := make(chan ThresholdAlert)
 	go m.alert.Run(ctx, statsForAlerts, alerts)
-	go m.ui.Run(ctx, statsForUI, alerts)
 
-	return func() {
-		cleanupProducer()
-	}, nil
+	m.ui.Run(ctx, statsForUI, alerts)
+
+	return nil
 }
 
 // broadcastTrafficStats reads stats from the Traffic Supervisor and broadcasts them into two channels.
