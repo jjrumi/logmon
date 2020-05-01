@@ -19,6 +19,7 @@ var (
 	alertWindow     int
 )
 
+// setLogger uses a file to log while on "debug" mode. No logging otherwise.
 func setLogger() *os.File {
 	level, ok := os.LookupEnv("LOG_LEVEL")
 	if !ok || level != "debug" {
@@ -27,7 +28,7 @@ func setLogger() *os.File {
 	}
 
 	// Setup log for debugging:
-	f, err := os.OpenFile("/code/var/log/app.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile("/tmp/logmon.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0640)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -68,17 +69,12 @@ func main() {
 	}
 	monitor := logmon.NewMonitor(opts)
 
-	ctx, cancel := context.WithCancel(context.Background())
-
 	// UI loops until an interrupt signal is captured.
-	err := monitor.Run(ctx)
+	err := monitor.Run(context.Background())
 	if err != nil {
 		fmt.Printf("error: %v\n", err)
 		os.Exit(1)
 	}
 
-	cancel()
-	// TODO: Improve shutdown... currently it's not waiting for goroutines to finish.
-	//  - Mimic http.Server.Shutdown approach.
 	os.Exit(0)
 }

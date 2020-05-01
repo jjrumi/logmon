@@ -12,11 +12,70 @@ import (
 	"github.com/nxadm/tail"
 )
 
+// LogEntry represents a line in a log file that follows a common format as in:
+// https://www.w3.org/Daemon/User/Config/Logging.html#common-logfile-format
+type LogEntry struct {
+	RemoteHost  string    // Remote hostname (or IP number if DNS hostname is not available).
+	UserID      string    // The remote logname of the user as in rfc931.
+	Username    string    // The username as which the user has authenticated himself.
+	Date        time.Time // Date and time of the request.
+	ReqMethod   string    // The HTTP request method.
+	ReqPath     string    // The HTTP request path.
+	ReqProtocol string    // The HTTP request protocol.
+	StatusCode  int       // The HTTP status code.
+	Bytes       int       // The content-length of the document transferred.
+	CreatedAt   time.Time // Time mark of the creation of this type.
+}
+
+// NewLogEntry creates a filled LogEntry.
+func NewLogEntry(
+	host string,
+	userID string,
+	userName string,
+	date time.Time,
+	method string,
+	path string,
+	protocol string,
+	status int,
+	bytes int,
+) LogEntry {
+	return LogEntry{
+		host,
+		userID,
+		userName,
+		date,
+		method,
+		path,
+		protocol,
+		status,
+		bytes,
+		time.Now(),
+	}
+}
+
+// LogEntryProducer watches a log file and produces a LogEntry for each new line.
 type LogEntryProducer interface {
 	Setup() (func(), error)
 	Run(ctx context.Context, entries chan<- LogEntry)
 }
 
+// ProducerOpts defines the options required to build a LogEntryProducer.
+type ProducerOpts struct {
+	LogFilePath string
+	TailWhence  int // From where start tailing: [io.SeekStart, io.SeekCurrent, io.SeekEnd]
+	TailLogger  *log.Logger
+	LogParser   LogParser
+}
+
+// logEntryProducer implements the LogEntryProducer interface.
+type logEntryProducer struct {
+	filename string
+	tailCfg  tail.Config
+	tail     *tail.Tail
+	parser   LogParser
+}
+
+// NewLogEntryProducer creates a LogEntryProducer.
 func NewLogEntryProducer(opts ProducerOpts) LogEntryProducer {
 	tailCfg := tail.Config{
 		Follow:    true,
@@ -29,23 +88,12 @@ func NewLogEntryProducer(opts ProducerOpts) LogEntryProducer {
 	return &logEntryProducer{
 		filename: opts.LogFilePath,
 		tailCfg:  tailCfg,
-		parser:   W3CommonLogParser{},
+		parser:   opts.LogParser,
 	}
 }
 
-type ProducerOpts struct {
-	LogFilePath string
-	TailWhence  int // From where start tailing: [io.SeekStart, io.SeekCurrent, io.SeekEnd]
-	TailLogger  *log.Logger
-}
-
-type logEntryProducer struct {
-	filename string
-	tailCfg  tail.Config
-	tail     *tail.Tail
-	parser   W3CommonLogParser
-}
-
+// Setup prepares the file watcher on the log file.
+// It returns a callback to do a cleanup on the file watcher.
 func (p *logEntryProducer) Setup() (func(), error) {
 	var err error
 	p.tail, err = tail.TailFile(p.filename, p.tailCfg)
@@ -61,6 +109,7 @@ func (p *logEntryProducer) Setup() (func(), error) {
 	return cleanup, nil
 }
 
+// Run consumes new lines from the file watcher and produces LogEntry into an output channel.
 func (p logEntryProducer) Run(ctx context.Context, entries chan<- LogEntry) {
 LOOP:
 	for {
@@ -86,13 +135,23 @@ LOOP:
 	close(entries)
 }
 
-type W3CommonLogParser struct{}
+// LogParser defines a log parser that produces a LogEntry from a log line.
+type LogParser interface {
+	Parse(line string) (entry LogEntry, err error)
+}
+
+// w3CommonLogParser implements the LogParser interface.
+type w3CommonLogParser struct{}
+
+func NewW3CommonLogParser() LogParser {
+	return w3CommonLogParser{}
+}
 
 // Parse uses regexp to capture groups in a log file the following format:
 // https://www.w3.org/Daemon/User/Config/Logging.html#common-logfile-format
 // example input:
 //   145.22.59.60 - - [24/Apr/2020:18:10:14 +0000] "PUT /web-enabled/enterprise/dynamic HTTP/1.0" 200 22035
-func (p W3CommonLogParser) Parse(line string) (entry LogEntry, err error) {
+func (p w3CommonLogParser) Parse(line string) (entry LogEntry, err error) {
 	rx := regexp.MustCompile(
 		// Capture groups in: remotehost rfc931 authuser [date] "request" status bytes
 		`^(\S+) (\S+) (\S+) \[([^]]+)] "(\S+) ([^"]+) (\S+)" ([0-9]{3}) ([0-9]+|-)$`,
@@ -119,13 +178,13 @@ func (p W3CommonLogParser) Parse(line string) (entry LogEntry, err error) {
 	}
 
 	return NewLogEntry(
-		matches[1],
-		matches[2],
-		matches[3],
+		matches[1], // host
+		matches[2], // userID
+		matches[3], // userName
 		date,
-		matches[5],
-		matches[6],
-		matches[7],
+		matches[5], // http method
+		matches[6], // url path
+		matches[7], // http protocol
 		status,
 		bytes,
 	), nil

@@ -54,7 +54,7 @@ func TestLogEntryProducer_ForNLines(t *testing.T) {
 	for ok && count < len(fixtures.raws) {
 		read, ok = <-entries
 		if ok {
-			require.False(t, equalLogEntries(read, logmon.NewEmptyLogEntry()), "entry is not empty")
+			require.False(t, equalLogEntries(read, givenAnEmptyLogEntry()), "entry is not empty")
 		}
 		count++
 	}
@@ -80,7 +80,7 @@ func TestLogEntryProducer_ContextCancellation(t *testing.T) {
 	for ok && count < len(fixtures.raws) {
 		read, ok = <-entries
 		if ok {
-			require.False(t, equalLogEntries(read, logmon.NewEmptyLogEntry()), "entry is not empty")
+			require.False(t, equalLogEntries(read, givenAnEmptyLogEntry()), "entry is not empty")
 			count++
 		}
 
@@ -104,6 +104,8 @@ func setupFileAndProducer(t *testing.T) (*os.File, <-chan logmon.LogEntry, conte
 	producer := givenALogEntryProducer(file)
 	cleanup, err := producer.Setup()
 	require.NoError(t, err)
+
+	// Run producer in separate goroutine:
 	entries := make(chan logmon.LogEntry)
 	go producer.Run(ctx, entries)
 
@@ -117,14 +119,19 @@ func setupFileAndProducer(t *testing.T) (*os.File, <-chan logmon.LogEntry, conte
 }
 
 func givenALogEntryProducer(file *os.File) logmon.LogEntryProducer {
-	opts := logmon.ProducerOpts{LogFilePath: file.Name(), TailWhence: io.SeekStart, TailLogger: tail.DiscardingLogger}
+	opts := logmon.ProducerOpts{
+		LogFilePath: file.Name(),
+		TailWhence: io.SeekStart,
+		TailLogger: tail.DiscardingLogger,
+		LogParser: logmon.NewW3CommonLogParser(),
+	}
 	producer := logmon.NewLogEntryProducer(opts)
 
 	return producer
 }
 
 func TestW3CommonLogParser(t *testing.T) {
-	parser := logmon.W3CommonLogParser{}
+	parser := logmon.NewW3CommonLogParser()
 	entryA, rawA := fixtures.GetOneAtRandom()
 	entryB, rawB := fixtures.GetOneAtRandom()
 
@@ -145,12 +152,12 @@ func TestW3CommonLogParser(t *testing.T) {
 		},
 		"it fails when parsing an invalid log line": {
 			rawLogEntry:   `invalid-log-entry`,
-			expectedEntry: logmon.NewEmptyLogEntry(),
+			expectedEntry: givenAnEmptyLogEntry(),
 			succeeds:      false,
 		},
 		"it fails when parsing an invalid date value": {
 			rawLogEntry:   `72.157.153.74 - - [xxxx] "PUT /seamless/whiteboard/holistic/mesh HTTP/2.0" 204 14813`,
-			expectedEntry: logmon.NewEmptyLogEntry(),
+			expectedEntry: givenAnEmptyLogEntry(),
 			succeeds:      false,
 		},
 		"it defaults to zero for entries with bytes represented with a dash '-'": {

@@ -4,9 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"time"
+	"sync"
 )
 
+// MonitorOpts defines the options required to build a Monitor.
 type MonitorOpts struct {
 	LogFilePath     string
 	RefreshInterval int
@@ -14,6 +15,11 @@ type MonitorOpts struct {
 	AlertWindow     int
 }
 
+// Monitor is a log monitor composed of:
+// - a file watcher which detects changes in the log file and produces a stream of LogEntry
+// - a traffic supervisor which consumes the stream of LogEntry and produces a stream of TrafficStats
+// - an alert manager which consumes the stream of TrafficStats and produces a stream of ThresholdAlert
+// - an UI which displays information consumed from the TrafficStats and ThresholdAlert streams
 type Monitor struct {
 	fileWatcher LogEntryProducer
 	traffic     TrafficSupervisor
@@ -21,52 +27,10 @@ type Monitor struct {
 	ui          UI
 }
 
-// LogEntry represents a line in a log file that follows a common format as in:
-// https://www.w3.org/Daemon/User/Config/Logging.html#common-logfile-format
-type LogEntry struct {
-	RemoteHost  string    // Remote hostname (or IP number if DNS hostname is not available).
-	UserID      string    // The remote logname of the user as in rfc931.
-	Username    string    // The username as which the user has authenticated himself.
-	Date        time.Time // Date and time of the request.
-	ReqMethod   string    // The HTTP request method.
-	ReqPath     string    // The HTTP request path.
-	ReqProtocol string    // The HTTP request protocol.
-	StatusCode  int       // The HTTP status code.
-	Bytes       int       // The content-length of the document transferred.
-	CreatedAt   time.Time // Time mark of the creation of this type.
-}
-
-func NewEmptyLogEntry() LogEntry {
-	return LogEntry{CreatedAt: time.Now()}
-}
-func NewLogEntry(
-	host string,
-	userID string,
-	userName string,
-	date time.Time,
-	method string,
-	path string,
-	protocol string,
-	status int,
-	bytes int,
-) LogEntry {
-	return LogEntry{
-		host,
-		userID,
-		userName,
-		date,
-		method,
-		path,
-		protocol,
-		status,
-		bytes,
-		time.Now(),
-	}
-}
-
+// NewMonitor creates the Monitor type.
 func NewMonitor(opts MonitorOpts) *Monitor {
 	producer := NewLogEntryProducer(
-		ProducerOpts{opts.LogFilePath, io.SeekEnd, nil},
+		ProducerOpts{opts.LogFilePath, io.SeekEnd, nil, NewW3CommonLogParser()},
 	)
 
 	traffic := NewTrafficSupervisor(
@@ -84,49 +48,87 @@ func NewMonitor(opts MonitorOpts) *Monitor {
 	return &Monitor{fileWatcher: producer, traffic: traffic, alert: alert, ui: ui}
 }
 
-func (m Monitor) Run(ctx context.Context) error {
+// Run executes all the components of the log monitor.
+// The file watcher, traffic supervisor and alert manager run on their own goroutine.
+// The UI runs on the main goroutine and captures interruption signals.
+// On shutdown, it waits for all components to stop before exiting.
+func (m Monitor) Run(parentCtx context.Context) error {
 	cleanupProducer, err := m.fileWatcher.Setup()
 	if err != nil {
 		return fmt.Errorf("setup file watcher: %w", err)
 	}
 	defer cleanupProducer()
 
-	logEntries := make(chan LogEntry)
-	go m.fileWatcher.Run(ctx, logEntries)
-
-	trafficStats := make(chan TrafficStats)
-	go m.traffic.Run(ctx, logEntries, trafficStats)
-
-	statsForAlerts, statsForUI := broadcastTrafficStats(ctx, trafficStats)
-
-	alerts := make(chan ThresholdAlert)
-	go m.alert.Run(ctx, statsForAlerts, alerts)
-
-	err = m.ui.Setup()
+	cleanupUI, err := m.ui.Setup()
 	if err != nil {
 		return fmt.Errorf("setup ui: %w", err)
 	}
+	defer cleanupUI()
 
+	ctx, cancel := context.WithCancel(parentCtx)
+	var wg sync.WaitGroup
+
+	// Launch each component on a different goroutine:
+	logEntries := m.launchLogEntryProducer(ctx, &wg)
+	statsForAlerts, statsForUI := m.launchTrafficSupervisor(ctx, &wg, logEntries)
+	alerts := m.launchAlertManager(ctx, &wg, statsForAlerts)
+
+	// Launch the UI in the main goroutine.
 	// UI loops until an interrupt signal is captured.
 	m.ui.Run(ctx, statsForUI, alerts)
+
+	// On shutdown, wait for all components to stop before exiting.
+	cancel()
+	wg.Wait()
 
 	return nil
 }
 
-// broadcastTrafficStats reads stats from the Traffic Supervisor and broadcasts them into two channels.
-func broadcastTrafficStats(ctx context.Context, stats chan TrafficStats) (chan TrafficStats, chan TrafficStats) {
-	statsForAlerts := make(chan TrafficStats)
-	statsForUI := make(chan TrafficStats)
+func (m Monitor) launchAlertManager(ctx context.Context, wg *sync.WaitGroup, statsForAlerts chan TrafficStats) chan ThresholdAlert {
+	alerts := make(chan ThresholdAlert)
+	wg.Add(1)
+	go func() {
+		m.alert.Run(ctx, statsForAlerts, alerts)
+		wg.Done()
+	}()
+	return alerts
+}
+
+func (m Monitor) launchTrafficSupervisor(ctx context.Context, wg *sync.WaitGroup, logEntries chan LogEntry) (chan TrafficStats, chan TrafficStats) {
+	trafficStats := make(chan TrafficStats)
+	wg.Add(1)
+	go func() {
+		m.traffic.Run(ctx, logEntries, trafficStats)
+		wg.Done()
+	}()
+
+	return broadcastTrafficStats(ctx, trafficStats)
+}
+
+func (m Monitor) launchLogEntryProducer(ctx context.Context, wg *sync.WaitGroup) chan LogEntry {
+	logEntries := make(chan LogEntry)
+	wg.Add(1)
+	go func() {
+		m.fileWatcher.Run(ctx, logEntries)
+		wg.Done()
+	}()
+	return logEntries
+}
+
+// broadcastTrafficStats broadcasts the messages from the input channel into two output channels.
+func broadcastTrafficStats(ctx context.Context, input chan TrafficStats) (chan TrafficStats, chan TrafficStats) {
+	output1 := make(chan TrafficStats)
+	output2 := make(chan TrafficStats)
 	go func() {
 		for {
 			select {
-			case msg := <-stats:
-				statsForAlerts <- msg
-				statsForUI <- msg
+			case msg := <-input:
+				output1 <- msg
+				output2 <- msg
 			case <-ctx.Done():
 				return
 			}
 		}
 	}()
-	return statsForAlerts, statsForUI
+	return output1, output2
 }

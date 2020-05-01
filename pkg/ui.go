@@ -27,17 +27,20 @@ type UI struct {
 	alertWindow    int
 }
 
-func (u UI) Setup() error {
+func (u UI) Setup() (func(), error) {
 	if err := ui.Init(); err != nil {
-		return fmt.Errorf("initialize termui: %w", err)
+		return nil, fmt.Errorf("initialize termui: %w", err)
 	}
 
-	return nil
+	cleanup := func() {
+		log.Printf("clean up: close UI...")
+		ui.Close()
+	}
+
+	return cleanup, nil
 }
 
 func (u UI) Run(ctx context.Context, stats <-chan TrafficStats, alertsBus <-chan ThresholdAlert) {
-	defer ui.Close()
-
 	traffic := u.buildTrafficWidget()
 	alerts := u.buildAlertsWidget()
 	sections := u.buildSectionsWidget()
@@ -81,7 +84,6 @@ LOOP:
 			break LOOP
 		}
 	}
-	log.Printf("clean up: close ui")
 }
 
 func (u UI) buildUIGrid(traffic *widgets.List, config interface{}, sections *widgets.List, status interface{}, methods interface{}, alerts *widgets.List) *ui.Grid {
@@ -186,9 +188,9 @@ func (u UI) buildConfigWidget() *widgets.List {
 func (u UI) formatConfig() []string {
 	return []string{
 		fmt.Sprintf("Current time: %v", time.Now().Format(time.RFC1123)),
-		fmt.Sprintf("Refresh interval: [%vs](fg:blue)", u.refresh),
-		fmt.Sprintf("Alert threshold: [%vreq/s](fg:blue)", u.alertThreshold),
-		fmt.Sprintf("Alert window: [%vs](fg:blue)", u.alertWindow),
+		fmt.Sprintf("Refresh interval: [%v](fg:blue)s", u.refresh),
+		fmt.Sprintf("Alert threshold: [%v](fg:blue)req/s", u.alertThreshold),
+		fmt.Sprintf("Alert window: [%v](fg:blue)s", u.alertWindow),
 	}
 }
 
@@ -227,6 +229,13 @@ func (e entries) Swap(i, j int) {
 }
 
 func (e entries) marshalTopList(title string, max int) []string {
+	if e.Len() < 1 {
+		return []string{
+			"",
+			"waiting for inputs...",
+		}
+	}
+
 	sort.Sort(sort.Reverse(e))
 
 	output := []string{title}
@@ -263,11 +272,11 @@ func (u UI) formatAlerts(a ThresholdAlert) []string {
 	if a.Open {
 		return []string{
 			"",
-			fmt.Sprintf("[!!](fg:red) High traffic generated an alert - hits = %.2freq/s\n - triggered at %v", a.Hits, a.Time.Format(time.RFC1123)),
+			fmt.Sprintf("[!!](fg:red) High traffic generated an alert - hits = [%.2f](fg:red)req/s\n - triggered at %v", a.Hits, a.Time.Format(time.RFC1123)),
 		}
 	}
 	return []string{
 		"",
-		fmt.Sprintf("[OK](fg:green) High traffic alert recovered - hits = %.2freq/s\n - recovered at %v", a.Hits, a.Time.Format(time.RFC1123)),
+		fmt.Sprintf("[OK](fg:green) High traffic alert recovered - hits = [%.2f](fg:green)req/s\n - recovered at %v", a.Hits, a.Time.Format(time.RFC1123)),
 	}
 }

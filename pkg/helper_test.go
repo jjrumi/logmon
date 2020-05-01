@@ -29,7 +29,7 @@ func NewLoadFixtures() LogEntryFixtures {
 func (f *LogEntryFixtures) loadFixtures() {
 	content, _ := ioutil.ReadFile("testdata/100entries.log")
 
-	parser := logmon.W3CommonLogParser{}
+	parser := logmon.NewW3CommonLogParser()
 	lines := strings.Split(string(content), "\n")
 	for _, line := range lines {
 		entry, _ := parser.Parse(line)
@@ -67,4 +67,9 @@ func equalLogEntries(a logmon.LogEntry, b logmon.LogEntry) bool {
 		b,
 		cmpopts.IgnoreFields(logmon.LogEntry{}, "CreatedAt"),
 	)
+}
+
+// givenAnEmptyLogEntry creates an empty LogEntry.
+func givenAnEmptyLogEntry() logmon.LogEntry {
+	return logmon.LogEntry{CreatedAt: time.Now()}
 }

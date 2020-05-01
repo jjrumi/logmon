@@ -59,8 +59,9 @@ LOOP:
 	}
 
 	wg.Wait()
-	log.Printf("clean up: close stats channel")
+	log.Printf("clean up: close stats channel & ticker")
 	close(stats)
+	ticker.Stop()
 }
 
 // produceStats considers entries within a time window.
