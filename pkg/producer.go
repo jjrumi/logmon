@@ -68,6 +68,7 @@ type ProducerOpts struct {
 }
 
 // logEntryProducer implements the LogEntryProducer interface.
+// It uses a third party file watcher (github.com/nxadm/tail) to tail the log file.
 type logEntryProducer struct {
 	filename string
 	tailCfg  tail.Config

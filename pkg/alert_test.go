@@ -16,13 +16,13 @@ func TestAlertSupervisor_NoAlertsWithTrafficNotExceedingThreshold(t *testing.T) 
 	sendStats(stats, logmon.TrafficStats{TotalReqs: 10}, numEntries) // Simulate 1 req/s
 	close(stats)
 
-	// Run supervisor:
+	// Run alert manager:
 	threshold := 1 // req/s
 	interval := 10 // refresh interval, in seconds
 	window := 100  // seconds
-	supervisor := givenAnAlertSupervisor(threshold, interval, window)
+	manager := givenAnAlertManager(threshold, interval, window)
 	alerts := make(chan logmon.ThresholdAlert)
-	supervisor.Run(context.Background(), stats, alerts)
+	manager.Run(context.Background(), stats, alerts)
 
 	// Validate no alerts were produced.
 	require.Empty(t, alerts, "no alerts expected")
@@ -38,13 +38,13 @@ func TestAlertSupervisor_AlertsWithHighTraffic(t *testing.T) {
 	sendStats(stats, logmon.TrafficStats{TotalReqs: 11}, numEntries) // Simulate 1.1 req/s
 	close(stats)
 
-	// Run supervisor:
+	// Run alert manager:
 	threshold := 1 // req/s
 	interval := 10 // refresh interval, in seconds
 	window := 100  // seconds
-	supervisor := givenAnAlertSupervisor(threshold, interval, window)
+	manager := givenAnAlertManager(threshold, interval, window)
 	alerts := make(chan logmon.ThresholdAlert, 1)
-	supervisor.Run(context.Background(), stats, alerts)
+	manager.Run(context.Background(), stats, alerts)
 
 	a, ok := <-alerts
 	require.True(t, ok, "alerts channel should be open")
@@ -60,13 +60,13 @@ func TestAlertSupervisor_AlertsAreRecovered(t *testing.T) {
 	sendStats(stats, logmon.TrafficStats{TotalReqs: 9}, numEntries)  // Simulate 0.9 req/s
 	close(stats)
 
-	// Run supervisor:
+	// Run alert manager:
 	threshold := 1 // req/s
 	interval := 10 // refresh interval, in seconds
 	window := 100  // seconds
-	supervisor := givenAnAlertSupervisor(threshold, interval, window)
+	manager := givenAnAlertManager(threshold, interval, window)
 	alerts := make(chan logmon.ThresholdAlert, 2)
-	supervisor.Run(context.Background(), stats, alerts)
+	manager.Run(context.Background(), stats, alerts)
 
 	// First element is an open alert:
 	a, ok := <-alerts
@@ -82,12 +82,14 @@ func TestAlertSupervisor_AlertsAreRecovered(t *testing.T) {
 }
 
 func TestAlertSupervisor_ContextCancellationBreaksLoop(t *testing.T) {
-	supervisor := givenAnAlertSupervisor(1, 10, 100)
+	// Run alert manager:
+	manager := givenAnAlertManager(1, 10, 100)
 	stats := make(chan logmon.TrafficStats)
 	alerts := make(chan logmon.ThresholdAlert)
 	ctx, cancel := context.WithCancel(context.Background())
-	go supervisor.Run(ctx, stats, alerts)
+	go manager.Run(ctx, stats, alerts)
 
+	// Force a context cancellation:
 	cancel()
 
 	_, ok := <-alerts
@@ -104,7 +106,7 @@ func sendStats(stats chan logmon.TrafficStats, trafficStats logmon.TrafficStats,
 	return expectedHits
 }
 
-func givenAnAlertSupervisor(threshold int, interval int, window int) logmon.AlertSupervisor {
+func givenAnAlertManager(threshold int, interval int, window int) logmon.AlertSupervisor {
 	return logmon.NewAlertsSupervisor(
 		logmon.AlertSupervisorOpts{
 			AlertThreshold:  threshold,

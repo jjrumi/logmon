@@ -7,41 +7,48 @@ import (
 	"time"
 )
 
+// ThresholdAlert defines an alert.
 type ThresholdAlert struct {
 	Open bool // true: Unresolved alert; false: Recovered alert.
 	Hits float64
 	Time time.Time
 }
 
+// AlertSupervisor consumes traffic stats and produces alerts.
 type AlertSupervisor interface {
 	Run(ctx context.Context, stats <-chan TrafficStats, alerts chan<- ThresholdAlert)
 }
 
+// NewAlertsSupervisor creates an AlertSupervisor.
 func NewAlertsSupervisor(opts AlertSupervisorOpts) AlertSupervisor {
 	return &alertSupervisor{
-		stats:     list.New(),
-		capacity:  opts.AlertWindow / opts.RefreshInterval, // Store as many stats as intervals fit in the monitoring window.
-		ongoing:   false,
-		threshold: opts.AlertThreshold,
-		window:    opts.AlertWindow,
+		statsBuffer: list.New(),
+		capacity:    opts.AlertWindow / opts.RefreshInterval, // Store as many stats as intervals fit in the monitoring window.
+		ongoing:     false,
+		threshold:   opts.AlertThreshold,
+		window:      opts.AlertWindow,
 	}
 }
 
+// AlertSupervisorOpts defines the options required to build an AlertSupervisor.
 type AlertSupervisorOpts struct {
 	AlertThreshold  int
 	RefreshInterval int
 	AlertWindow     int
 }
 
+// alertSupervisor implements the AlertSupervisor interface.
+// It stores the traffic stats of a monitoring window in a linked-list.
 type alertSupervisor struct {
-	stats        *list.List // Buffer to store all the stats within the alert window.
+	statsBuffer  *list.List // Buffer to store all the stats within the alert window.
 	capacity     int        // Number of stats to store.
 	ongoing      bool       // Is the alert active?
 	reqsInWindow int        // Counter for requests within the alert window.
 	threshold    int        // ThresholdAlert condition, in requests per second.
-	window       int        // Time alert window, in seconds.
+	window       int        // Alert window, in seconds.
 }
 
+// Run consumes traffic stats and produces alerts.
 func (a *alertSupervisor) Run(ctx context.Context, stats <-chan TrafficStats, alerts chan<- ThresholdAlert) {
 LOOP:
 	for {
@@ -61,15 +68,19 @@ LOOP:
 	close(alerts)
 }
 
+// trackAlerts updates the storage of stats for the current monitoring window.
+// It adds new stats to the front of the list.
+// It removes old stats from the back of the list.
+// Alert threshold is checked against a pre-calculated value, updated on every new traffic stats.
 func (a *alertSupervisor) trackAlerts(s TrafficStats, alerts chan<- ThresholdAlert) {
 	// Keep track of the stats within the alert window:
-	a.stats.PushFront(s)
+	a.statsBuffer.PushFront(s)
 	a.reqsInWindow += s.TotalReqs
 
 	// Remove old stats:
-	if a.stats.Len() > a.capacity {
-		last := a.stats.Back()
-		oldStat := a.stats.Remove(last)
+	if a.statsBuffer.Len() > a.capacity {
+		last := a.statsBuffer.Back()
+		oldStat := a.statsBuffer.Remove(last)
 		a.reqsInWindow -= oldStat.(TrafficStats).TotalReqs
 	}
 

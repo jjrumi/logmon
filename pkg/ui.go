@@ -11,22 +11,27 @@ import (
 	"github.com/gizak/termui/v3/widgets"
 )
 
+// UIOpts defines the options required to build a UI.
 type UIOpts struct {
 	Refresh        int
 	AlertThreshold int
 	AlertWindow    int
 }
 
+// NewUI creates a UI.
 func NewUI(opts UIOpts) UI {
 	return UI{refresh: opts.Refresh, alertThreshold: opts.AlertThreshold, alertWindow: opts.AlertWindow}
 }
 
+// UI holds the configuration values of the monitor to display the information.
+// It uses a third party library (github.com/gizak/termui) to manipulate the GUI in the console.
 type UI struct {
 	refresh        int
 	alertThreshold int
 	alertWindow    int
 }
 
+// Setup configures the UI and returns a callback to cleanup afterwards.
 func (u UI) Setup() (func(), error) {
 	if err := ui.Init(); err != nil {
 		return nil, fmt.Errorf("initialize termui: %w", err)
@@ -40,6 +45,8 @@ func (u UI) Setup() (func(), error) {
 	return cleanup, nil
 }
 
+// Run builds the layout and loops infinitely consuming traffic stats and alerts.
+// It also captures interruption signals.
 func (u UI) Run(ctx context.Context, stats <-chan TrafficStats, alertsBus <-chan ThresholdAlert) {
 	traffic := u.buildTrafficWidget()
 	alerts := u.buildAlertsWidget()
@@ -202,6 +209,37 @@ func (u UI) formatTraffic(s TrafficStats) []string {
 	}
 }
 
+func (u UI) formatSections(s TrafficStats) []string {
+	buf := fromMap(s.SectionHits)
+
+	return buf.marshalTopList("Hits - Section", 20)
+}
+
+func (u UI) formatStatus(s TrafficStats) []string {
+	buf := fromMap(s.StatusClassHits)
+
+	return buf.marshalTopList("Hits - HTTP status", 10)
+}
+
+func (u UI) formatMethods(s TrafficStats) []string {
+	buf := fromMap(s.MethodHits)
+
+	return buf.marshalTopList("Hits - HTTP method", 10)
+}
+
+func (u UI) formatAlerts(a ThresholdAlert) []string {
+	if a.Open {
+		return []string{
+			"",
+			fmt.Sprintf("[!!](fg:red) High traffic generated an alert - hits = [%.2f](fg:red)req/s\n - triggered at %v", a.Hits, a.Time.Format(time.RFC1123)),
+		}
+	}
+	return []string{
+		"",
+		fmt.Sprintf("[OK](fg:green) High traffic alert recovered - hits = [%.2f](fg:green)req/s\n - recovered at %v", a.Hits, a.Time.Format(time.RFC1123)),
+	}
+}
+
 // entry is a helper struct to build sorted list of top values from maps
 type entry struct {
 	val int
@@ -248,35 +286,4 @@ func (e entries) marshalTopList(title string, max int) []string {
 		}
 	}
 	return output
-}
-
-func (u UI) formatSections(s TrafficStats) []string {
-	buf := fromMap(s.SectionHits)
-
-	return buf.marshalTopList("Hits - Section", 20)
-}
-
-func (u UI) formatStatus(s TrafficStats) []string {
-	buf := fromMap(s.StatusClassHits)
-
-	return buf.marshalTopList("Hits - HTTP status", 10)
-}
-
-func (u UI) formatMethods(s TrafficStats) []string {
-	buf := fromMap(s.MethodHits)
-
-	return buf.marshalTopList("Hits - HTTP method", 10)
-}
-
-func (u UI) formatAlerts(a ThresholdAlert) []string {
-	if a.Open {
-		return []string{
-			"",
-			fmt.Sprintf("[!!](fg:red) High traffic generated an alert - hits = [%.2f](fg:red)req/s\n - triggered at %v", a.Hits, a.Time.Format(time.RFC1123)),
-		}
-	}
-	return []string{
-		"",
-		fmt.Sprintf("[OK](fg:green) High traffic alert recovered - hits = [%.2f](fg:green)req/s\n - recovered at %v", a.Hits, a.Time.Format(time.RFC1123)),
-	}
 }

@@ -33,7 +33,7 @@ func TestLogEntryProducer_WithInvalidFile(t *testing.T) {
 	opts := logmon.ProducerOpts{LogFilePath: "invalid-file-path"}
 	producer := logmon.NewLogEntryProducer(opts)
 	_, err := producer.Setup()
-	require.Error(t, err)
+	require.Error(t, err, "file watcher cannot start with an invalid file")
 }
 
 func TestLogEntryProducer_ForNLines(t *testing.T) {

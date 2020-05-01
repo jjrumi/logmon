@@ -9,29 +9,36 @@ import (
 	"time"
 )
 
-// Reads LogEntry and produces TrafficStats
+// TrafficSupervisor consumes log entries and produces traffic stats.
 type TrafficSupervisor interface {
 	Run(ctx context.Context, entries <-chan LogEntry, stats chan<- TrafficStats)
 }
 
+// NewTrafficSupervisor creates a TrafficSupervisor.
 func NewTrafficSupervisor(opts TrafficSupervisorOpts) TrafficSupervisor {
 	return &trafficSupervisor{
 		refreshInterval: time.Duration(opts.RefreshInterval) * time.Millisecond,
-		statsBuffer:     list.New(),
-		statsOut:        make(chan TrafficStats),
+		entriesBuffer:   list.New(),
 	}
 }
 
+// TrafficSupervisorOpts defines the options required to build a TrafficSupervisor.
 type TrafficSupervisorOpts struct {
 	RefreshInterval int
 }
 
+// traficSupervisor implements the TrafficSupervisor interface.
+// It stores the log entries of the current refresh interval in a linked-list.
 type trafficSupervisor struct {
-	statsBuffer     *list.List
+	entriesBuffer   *list.List
 	refreshInterval time.Duration
-	statsOut        chan TrafficStats
 }
 
+// Run consumes log entries and produces traffic stats.
+// Every log entry received is stored in a linked-list. Only the current interval is kept in the list.
+// Traffic stats generation is scheduled based on the refresh interval.
+// On every refresh interval tick, the current buffer of log entries is used to generate the stats.
+// The log entries buffer is replaced with an empty list that will store the entries of the next interval.
 func (t *trafficSupervisor) Run(ctx context.Context, entries <-chan LogEntry, stats chan<- TrafficStats) {
 	var wg sync.WaitGroup
 	ticker := time.NewTicker(t.refreshInterval)
@@ -44,12 +51,12 @@ LOOP:
 				break LOOP
 			}
 
-			t.statsBuffer.PushFront(entry)
+			t.entriesBuffer.PushFront(entry)
 		case <-ticker.C:
-			// Keep a reference to the current list of entries.
+			// Keep a reference to the current list of entries to compute stats.
 			// Create a new list for the next tick.
-			interval := t.statsBuffer
-			t.statsBuffer = list.New()
+			interval := t.entriesBuffer
+			t.entriesBuffer = list.New()
 
 			wg.Add(1)
 			go t.produceStats(&wg, interval, stats)
@@ -58,7 +65,7 @@ LOOP:
 		}
 	}
 
-	wg.Wait()
+	wg.Wait() // Wait for any goroutine that might be generating stats.
 	log.Printf("clean up: close stats channel & ticker")
 	close(stats)
 	ticker.Stop()
@@ -66,7 +73,7 @@ LOOP:
 
 // produceStats considers entries within a time window.
 // it starts consuming the oldest entry and continues up to the given time limit.
-// every consumed entry is removed from the local storage.
+// every consumed entry is freed.
 func (t *trafficSupervisor) produceStats(wg *sync.WaitGroup, interval *list.List, statsC chan<- TrafficStats) {
 	stats := NewEmptyTrafficStats()
 
@@ -86,6 +93,7 @@ func (t *trafficSupervisor) produceStats(wg *sync.WaitGroup, interval *list.List
 	wg.Done()
 }
 
+// TrafficStats defines the stats store for the traffic during an interval.
 type TrafficStats struct {
 	SectionHits     map[string]int
 	MethodHits      map[string]int
@@ -94,6 +102,7 @@ type TrafficStats struct {
 	TotalReqs       int
 }
 
+// NewEmptyTrafficStats creates an empty TrafficStats.
 func NewEmptyTrafficStats() TrafficStats {
 	return TrafficStats{
 		SectionHits:     make(map[string]int),
@@ -102,6 +111,7 @@ func NewEmptyTrafficStats() TrafficStats {
 	}
 }
 
+// Update updates the traffic stats with a LogEntry.
 func (s *TrafficStats) Update(entry LogEntry) {
 	s.SectionHits[s.parseSection(entry.ReqPath)]++
 	s.MethodHits[entry.ReqMethod]++
@@ -110,6 +120,7 @@ func (s *TrafficStats) Update(entry LogEntry) {
 	s.TotalReqs++
 }
 
+// parseSection finds the section in the given URL path.
 func (s *TrafficStats) parseSection(path string) string {
 	if len(path) < 1 || path[0] != '/' {
 		path = "/" + path
@@ -119,6 +130,7 @@ func (s *TrafficStats) parseSection(path string) string {
 	return rx.FindString(path)
 }
 
+// parseStatusClass classifies HTTP status codes into classes.
 func (s *TrafficStats) parseStatusClass(code int) string {
 	if code < 200 {
 		return "1xx"
