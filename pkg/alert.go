@@ -3,6 +3,7 @@ package logmon
 import (
 	"container/list"
 	"context"
+	"log"
 	"time"
 )
 
@@ -56,6 +57,7 @@ LOOP:
 		}
 	}
 
+	log.Printf("clean up: close alerts channel")
 	close(alerts)
 }
 
@@ -77,12 +79,16 @@ func (a *alertSupervisor) trackAlerts(s TrafficStats, alerts chan<- ThresholdAle
 	if a.ongoing {
 		if reqsPerSec < float64(a.threshold) {
 			a.ongoing = false
-			alerts <- ThresholdAlert{Open: false, Hits: reqsPerSec, Time: time.Now()}
+			alert := ThresholdAlert{Open: false, Hits: reqsPerSec, Time: time.Now()}
+			log.Printf("close ongoing alert: %v", alert)
+			alerts <- alert
 		}
 	} else {
 		if reqsPerSec > float64(a.threshold) {
 			a.ongoing = true
-			alerts <- ThresholdAlert{Open: true, Hits: reqsPerSec, Time: time.Now()}
+			alert := ThresholdAlert{Open: true, Hits: reqsPerSec, Time: time.Now()}
+			log.Printf("create alert: %v", alert)
+			alerts <- alert
 		}
 	}
 }

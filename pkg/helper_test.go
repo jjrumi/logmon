@@ -6,12 +6,10 @@ import (
 	"math/rand"
 	"os"
 	"strings"
-	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/sirupsen/logrus/hooks/test"
 
 	logmon "github.com/jjrumi/accesslogmonitor/pkg"
 )
@@ -51,17 +49,6 @@ func (f *LogEntryFixtures) GetOneAtRandom() (logmon.LogEntry, string) {
 	entry.CreatedAt = time.Now()
 
 	return entry, f.raws[i]
-}
-
-func flushLogs(t *testing.T) {
-	func(hook *test.Hook) {
-		t.Log("log dump:")
-		entries := hook.AllEntries()
-		for _, e := range entries {
-			t.Log(e.Message)
-		}
-		hook.Reset()
-	}(hook)
 }
 
 func appendToFile(file *os.File, content string) {

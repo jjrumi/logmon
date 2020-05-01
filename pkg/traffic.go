@@ -41,7 +41,6 @@ LOOP:
 		select {
 		case entry, ok := <-entries:
 			if !ok {
-				log.Printf("producer channel closed")
 				break LOOP
 			}
 
@@ -60,6 +59,7 @@ LOOP:
 	}
 
 	wg.Wait()
+	log.Printf("clean up: close stats channel")
 	close(stats)
 }
 
@@ -69,6 +69,7 @@ LOOP:
 func (t *trafficSupervisor) produceStats(wg *sync.WaitGroup, interval *list.List, statsC chan<- TrafficStats) {
 	stats := NewEmptyTrafficStats()
 
+	count := interval.Len()
 	var e, prev *list.Element
 	e = interval.Back()
 	for e != nil {
@@ -79,6 +80,7 @@ func (t *trafficSupervisor) produceStats(wg *sync.WaitGroup, interval *list.List
 		e = prev
 	}
 
+	log.Printf("send stats from %d entries: %v", count, stats)
 	statsC <- stats
 	wg.Done()
 }

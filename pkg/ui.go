@@ -27,11 +27,15 @@ type UI struct {
 	alertWindow    int
 }
 
-func (u UI) Run(ctx context.Context, stats <-chan TrafficStats, alertsBus <-chan ThresholdAlert) {
+func (u UI) Setup() error {
 	if err := ui.Init(); err != nil {
-		// TODO: move error handling
-		log.Fatalf("failed to initialize termui: %v", err)
+		return fmt.Errorf("initialize termui: %w", err)
 	}
+
+	return nil
+}
+
+func (u UI) Run(ctx context.Context, stats <-chan TrafficStats, alertsBus <-chan ThresholdAlert) {
 	defer ui.Close()
 
 	traffic := u.buildTrafficWidget()
@@ -40,7 +44,6 @@ func (u UI) Run(ctx context.Context, stats <-chan TrafficStats, alertsBus <-chan
 	status := u.buildStatusWidget()
 	methods := u.buildMethodsWidget()
 	config := u.buildConfigWidget()
-
 	grid := u.buildUIGrid(traffic, config, sections, status, methods, alerts)
 
 	ui.Render(grid)
@@ -55,29 +58,31 @@ LOOP:
 				break LOOP
 			}
 		case s, ok := <-stats:
-			log.Printf("stats: %v", s)
 			if !ok {
-				log.Printf("stats channel closed")
 				break LOOP
 			}
 
 			config.Rows = u.formatConfig()
 			traffic.Rows = u.formatTraffic(s)
 			sections.Rows = u.formatSections(s)
+			// TODO: Add status to view
+			// TODO: Add methods to view
 
 			ui.Render(grid)
 		case a, ok := <-alertsBus:
-			log.Printf("alert: %v", a)
 			if !ok {
-				log.Printf("alertsBus channel closed")
 				break LOOP
 			}
+
+			// TODO: Add alerts to view
+			log.Printf("todo: treat alert: %v", a)
 
 			ui.Render(grid)
 		case <-ctx.Done():
 			break LOOP
 		}
 	}
+	log.Printf("clean up: close ui")
 }
 
 func (u UI) buildUIGrid(traffic *widgets.List, config interface{}, sections *widgets.List, status interface{}, methods interface{}, alerts *widgets.List) *ui.Grid {
@@ -196,7 +201,7 @@ func (u UI) formatTraffic(s TrafficStats) []string {
 	}
 }
 
-// entry is a helper struct to build list of top values from maps
+// entry is a helper struct to build sorted list of top values from maps
 type entry struct {
 	val int
 	key string

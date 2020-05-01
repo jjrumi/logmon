@@ -4,10 +4,9 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
-
-	"github.com/sirupsen/logrus"
 
 	logmon "github.com/jjrumi/accesslogmonitor/pkg"
 )
@@ -20,24 +19,23 @@ var (
 	alertWindow     int
 )
 
-func init() {
-	setLogger()
-	setArguments()
-}
-
-func setLogger() {
+func setLogger() *os.File {
 	level, ok := os.LookupEnv("LOG_LEVEL")
-	if !ok {
-		level = "error"
-	}
-	lvl, err := logrus.ParseLevel(level)
-	if err != nil {
-		lvl = logrus.ErrorLevel
+	if !ok || level != "debug" {
+		log.SetOutput(ioutil.Discard)
+		return nil
 	}
 
-	logger := logrus.New()
-	logger.SetLevel(lvl)
+	// Setup log for debugging:
+	f, err := os.OpenFile("/code/var/log/app.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	logger := log.New(f, "", log.LstdFlags)
 	log.SetOutput(logger.Writer())
+	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile | log.LUTC)
+	return f
 }
 
 func setArguments() {
@@ -54,6 +52,12 @@ func setArguments() {
 }
 
 func main() {
+	logFile := setLogger()
+	if logFile != nil {
+		defer logFile.Close()
+	}
+
+	setArguments()
 	flag.Parse()
 
 	opts := logmon.MonitorOpts{
@@ -65,12 +69,16 @@ func main() {
 	monitor := logmon.NewMonitor(opts)
 
 	ctx, cancel := context.WithCancel(context.Background())
+
+	// UI loops until an interrupt signal is captured.
 	err := monitor.Run(ctx)
 	if err != nil {
-		// TODO: log.Fatal do not log errors... it logs infos.
-		log.Fatal(err)
+		fmt.Printf("error: %v\n", err)
+		os.Exit(1)
 	}
 
 	cancel()
+	// TODO: Improve shutdown... currently it's not waiting for goroutines to finish.
+	//  - Mimic http.Server.Shutdown approach.
 	os.Exit(0)
 }

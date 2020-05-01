@@ -50,11 +50,11 @@ func (p *logEntryProducer) Setup() (func(), error) {
 	var err error
 	p.tail, err = tail.TailFile(p.filename, p.tailCfg)
 	if err != nil {
-		return nil, fmt.Errorf("creating log tail: %w", err)
+		return nil, fmt.Errorf("create log tail: %w", err)
 	}
 
 	cleanup := func() {
-		log.Printf("cleaning up Producer...\n")
+		log.Printf("clean up: remove log tail...")
 		p.tail.Cleanup()
 	}
 
@@ -67,21 +67,22 @@ LOOP:
 		select {
 		case line, ok := <-p.tail.Lines:
 			if !ok {
-				log.Printf("tail channel closed")
 				break LOOP
 			}
 
 			entry, err := p.parser.Parse(line.Text)
-			if err == nil {
-				log.Printf("sending: %v\n", entry)
-				entries <- entry
+			if err != nil {
+				log.Printf("error parsing log line: %v", err)
+				continue
 			}
+
+			log.Printf("send log entry: %v", entry)
+			entries <- entry
 		case <-ctx.Done():
-			log.Printf("context cancelled\n")
 			break LOOP
 		}
 	}
-	log.Printf("closing entries channel\n")
+	log.Printf("clean up: close entries channel")
 	close(entries)
 }
 
@@ -99,7 +100,7 @@ func (p W3CommonLogParser) Parse(line string) (entry LogEntry, err error) {
 
 	matches := rx.FindStringSubmatch(line)
 	if len(matches) < 9 {
-		return entry, errors.New("parse log entry")
+		return entry, errors.New("log entry does not match regexp")
 	}
 
 	var date time.Time

@@ -87,7 +87,7 @@ func NewMonitor(opts MonitorOpts) *Monitor {
 func (m Monitor) Run(ctx context.Context) error {
 	cleanupProducer, err := m.fileWatcher.Setup()
 	if err != nil {
-		return fmt.Errorf("preparing log entry producer: %w", err)
+		return fmt.Errorf("setup file watcher: %w", err)
 	}
 	defer cleanupProducer()
 
@@ -102,6 +102,12 @@ func (m Monitor) Run(ctx context.Context) error {
 	alerts := make(chan ThresholdAlert)
 	go m.alert.Run(ctx, statsForAlerts, alerts)
 
+	err = m.ui.Setup()
+	if err != nil {
+		return fmt.Errorf("setup ui: %w", err)
+	}
+
+	// UI loops until an interrupt signal is captured.
 	m.ui.Run(ctx, statsForUI, alerts)
 
 	return nil

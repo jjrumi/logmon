@@ -10,22 +10,16 @@ import (
 	"testing"
 
 	"github.com/nxadm/tail"
-	"github.com/sirupsen/logrus"
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
 	logmon "github.com/jjrumi/accesslogmonitor/pkg"
 )
 
-var hook *test.Hook
 var fixtures LogEntryFixtures
 
 func TestMain(m *testing.M) {
 	// Setup:
-	var logger *logrus.Logger
-	logger, hook = test.NewNullLogger()
-	log.SetOutput(logger.Writer())
-
+	log.SetOutput(ioutil.Discard)
 	fixtures = NewLoadFixtures()
 
 	// Run tests:

@@ -10,7 +10,7 @@ go-install-vendor: ## Install dependencies
 	go mod vendor
 
 go-test: ## Run the tests
-	go test -race -v -count=1 -p 1 ./...
+	go test -race -v -count=1 ./...
 
 go-build: ## Build the log monitor binary
 	go build \
