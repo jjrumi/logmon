@@ -7,7 +7,6 @@ import (
 	"log"
 	"regexp"
 	"strconv"
-	"time"
 
 	"github.com/nxadm/tail"
 )
@@ -15,16 +14,15 @@ import (
 // LogEntry represents a line in a log file that follows a common format as in:
 // https://www.w3.org/Daemon/User/Config/Logging.html#common-logfile-format
 type LogEntry struct {
-	RemoteHost  string    // Remote hostname (or IP number if DNS hostname is not available).
-	UserID      string    // The remote logname of the user as in rfc931.
-	Username    string    // The username as which the user has authenticated himself.
-	Date        time.Time // Date and time of the request.
-	ReqMethod   string    // The HTTP request method.
-	ReqPath     string    // The HTTP request path.
-	ReqProtocol string    // The HTTP request protocol.
-	StatusCode  int       // The HTTP status code.
-	Bytes       int       // The content-length of the document transferred.
-	CreatedAt   time.Time // Time mark of the creation of this type.
+	RemoteHost  string // Remote hostname (or IP number if DNS hostname is not available).
+	UserID      string // The remote logname of the user as in rfc931.
+	Username    string // The username as which the user has authenticated himself.
+	Date        string // Date and time of the request.
+	ReqMethod   string // The HTTP request method.
+	ReqPath     string // The HTTP request path.
+	ReqProtocol string // The HTTP request protocol.
+	StatusCode  int    // The HTTP status code.
+	Bytes       int    // The content-length of the document transferred.
 }
 
 // NewLogEntry creates a filled LogEntry.
@@ -32,7 +30,7 @@ func NewLogEntry(
 	host string,
 	userID string,
 	userName string,
-	date time.Time,
+	date string,
 	method string,
 	path string,
 	protocol string,
@@ -49,7 +47,6 @@ func NewLogEntry(
 		protocol,
 		status,
 		bytes,
-		time.Now(),
 	}
 }
 
@@ -142,10 +139,17 @@ type LogParser interface {
 }
 
 // w3CommonLogParser implements the LogParser interface.
-type w3CommonLogParser struct{}
+type w3CommonLogParser struct {
+	logLineRegexp *regexp.Regexp
+}
 
 func NewW3CommonLogParser() LogParser {
-	return w3CommonLogParser{}
+	return w3CommonLogParser{
+		logLineRegexp: regexp.MustCompile(
+			// Capture groups in: remotehost rfc931 authuser [date] "request" status bytes
+			`^(\S+) (\S+) (\S+) \[([^]]+)] "(\S+) ([^"]+) (\S+)" ([0-9]{3}) ([0-9]+|-)$`,
+		),
+	}
 }
 
 // Parse uses regexp to capture groups in a log file the following format:
@@ -153,20 +157,9 @@ func NewW3CommonLogParser() LogParser {
 // example input:
 //   145.22.59.60 - - [24/Apr/2020:18:10:14 +0000] "PUT /web-enabled/enterprise/dynamic HTTP/1.0" 200 22035
 func (p w3CommonLogParser) Parse(line string) (entry LogEntry, err error) {
-	rx := regexp.MustCompile(
-		// Capture groups in: remotehost rfc931 authuser [date] "request" status bytes
-		`^(\S+) (\S+) (\S+) \[([^]]+)] "(\S+) ([^"]+) (\S+)" ([0-9]{3}) ([0-9]+|-)$`,
-	)
-
-	matches := rx.FindStringSubmatch(line)
+	matches := p.logLineRegexp.FindStringSubmatch(line)
 	if len(matches) < 9 {
 		return entry, errors.New("log entry does not match regexp")
-	}
-
-	var date time.Time
-	date, err = time.Parse("02/Jan/2006:15:04:05 -0700", matches[4])
-	if err != nil {
-		return entry, fmt.Errorf("parse date from log: %w", err)
 	}
 
 	var status int
@@ -182,7 +175,7 @@ func (p w3CommonLogParser) Parse(line string) (entry LogEntry, err error) {
 		matches[1], // host
 		matches[2], // userID
 		matches[3], // userName
-		date,
+		matches[4], // date
 		matches[5], // http method
 		matches[6], // url path
 		matches[7], // http protocol

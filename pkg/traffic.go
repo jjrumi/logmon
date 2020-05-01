@@ -27,7 +27,7 @@ type TrafficSupervisorOpts struct {
 	RefreshInterval int
 }
 
-// traficSupervisor implements the TrafficSupervisor interface.
+// trafficSupervisor implements the TrafficSupervisor interface.
 // It stores the log entries of the current refresh interval in a linked-list.
 type trafficSupervisor struct {
 	entriesBuffer   *list.List
@@ -100,6 +100,7 @@ type TrafficStats struct {
 	StatusClassHits map[string]int
 	Bytes           int
 	TotalReqs       int
+	sectionRegexp   *regexp.Regexp
 }
 
 // NewEmptyTrafficStats creates an empty TrafficStats.
@@ -108,6 +109,7 @@ func NewEmptyTrafficStats() TrafficStats {
 		SectionHits:     make(map[string]int),
 		MethodHits:      make(map[string]int),
 		StatusClassHits: make(map[string]int),
+		sectionRegexp:   regexp.MustCompile(`^/[^/]*`),
 	}
 }
 
@@ -126,8 +128,7 @@ func (s *TrafficStats) parseSection(path string) string {
 		path = "/" + path
 	}
 
-	rx := regexp.MustCompile(`^/[^/]*`)
-	return rx.FindString(path)
+	return s.sectionRegexp.FindString(path)
 }
 
 // parseStatusClass classifies HTTP status codes into classes.

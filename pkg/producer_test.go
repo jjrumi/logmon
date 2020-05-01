@@ -155,11 +155,6 @@ func TestW3CommonLogParser(t *testing.T) {
 			expectedEntry: givenAnEmptyLogEntry(),
 			succeeds:      false,
 		},
-		"it fails when parsing an invalid date value": {
-			rawLogEntry:   `72.157.153.74 - - [xxxx] "PUT /seamless/whiteboard/holistic/mesh HTTP/2.0" 204 14813`,
-			expectedEntry: givenAnEmptyLogEntry(),
-			succeeds:      false,
-		},
 		"it defaults to zero for entries with bytes represented with a dash '-'": {
 			rawLogEntry:   rawB,
 			expectedEntry: entryB,

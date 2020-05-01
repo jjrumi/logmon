@@ -134,7 +134,7 @@ func TestTrafficStats(t *testing.T) {
 		"192.168.0.10",
 		"-",
 		"-",
-		time.Now(),
+		time.Now().Format("02/Jan/2006:15:04:05 -0700"),
 		"GET",
 		"/path",
 		"HTTP/2.0",
@@ -190,7 +190,7 @@ func TestTrafficStats(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			stats := logmon.NewEmptyTrafficStats()
 			stats.Update(tc.LogEntry)
-			require.EqualValues(t, tc.ExpectedStats, stats)
+			require.True(t, equalTrafficStats(tc.ExpectedStats, stats))
 		})
 	}
 }

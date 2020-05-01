@@ -44,11 +44,7 @@ func (f *LogEntryFixtures) GetOneAtRandom() (logmon.LogEntry, string) {
 	max := len(f.registry) - 1
 	i := rand.Intn(max-min) + min
 
-	// Fix the creation time on each call to this method:
-	entry := f.registry[i]
-	entry.CreatedAt = time.Now()
-
-	return entry, f.raws[i]
+	return f.registry[i], f.raws[i]
 }
 
 func appendToFile(file *os.File, content string) {
@@ -58,18 +54,21 @@ func appendToFile(file *os.File, content string) {
 }
 
 func equalTrafficStats(a logmon.TrafficStats, b logmon.TrafficStats) bool {
-	return cmp.Equal(a, b)
+	return cmp.Equal(
+		a,
+		b,
+		cmpopts.IgnoreUnexported(logmon.TrafficStats{}),
+	)
 }
 
 func equalLogEntries(a logmon.LogEntry, b logmon.LogEntry) bool {
 	return cmp.Equal(
 		a,
 		b,
-		cmpopts.IgnoreFields(logmon.LogEntry{}, "CreatedAt"),
 	)
 }
 
 // givenAnEmptyLogEntry creates an empty LogEntry.
 func givenAnEmptyLogEntry() logmon.LogEntry {
-	return logmon.LogEntry{CreatedAt: time.Now()}
+	return logmon.LogEntry{}
 }
