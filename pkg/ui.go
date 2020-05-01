@@ -65,8 +65,8 @@ LOOP:
 			config.Rows = u.formatConfig()
 			traffic.Rows = u.formatTraffic(s)
 			sections.Rows = u.formatSections(s)
-			// TODO: Add status to view
-			// TODO: Add methods to view
+			status.Rows = u.formatStatus(s)
+			methods.Rows = u.formatMethods(s)
 
 			ui.Render(grid)
 		case a, ok := <-alertsBus:
@@ -74,8 +74,7 @@ LOOP:
 				break LOOP
 			}
 
-			// TODO: Add alerts to view
-			log.Printf("todo: treat alert: %v", a)
+			alerts.Rows = u.formatAlerts(a)
 
 			ui.Render(grid)
 		case <-ctx.Done():
@@ -95,14 +94,14 @@ func (u UI) buildUIGrid(traffic *widgets.List, config interface{}, sections *wid
 			ui.NewCol(1.0/2, traffic),
 			ui.NewCol(1.0/2, config),
 		),
-		ui.NewRow(0.8,
+		ui.NewRow(0.2,
+			ui.NewCol(1.0, alerts),
+		),
+		ui.NewRow(0.6,
 			ui.NewCol(1.0/2, sections),
-			ui.NewCol(1.0/4,
+			ui.NewCol(1.0/2,
 				ui.NewRow(0.5, status),
 				ui.NewRow(0.5, methods),
-			),
-			ui.NewCol(1.0/4,
-				ui.NewRow(1.0, alerts),
 			),
 		),
 	)
@@ -188,7 +187,7 @@ func (u UI) formatConfig() []string {
 	return []string{
 		fmt.Sprintf("Current time: %v", time.Now().Format(time.RFC1123)),
 		fmt.Sprintf("Refresh interval: [%vs](fg:blue)", u.refresh),
-		fmt.Sprintf("Alert threshold: [%vs](fg:blue)", u.alertThreshold),
+		fmt.Sprintf("Alert threshold: [%vreq/s](fg:blue)", u.alertThreshold),
 		fmt.Sprintf("Alert window: [%vs](fg:blue)", u.alertWindow),
 	}
 }
@@ -209,6 +208,14 @@ type entry struct {
 
 type entries []entry
 
+func fromMap(m map[string]int) entries {
+	var buf entries
+	for k, v := range m {
+		buf = append(buf, entry{key: k, val: v})
+	}
+	return buf
+}
+
 func (e entries) Len() int {
 	return len(e)
 }
@@ -219,29 +226,48 @@ func (e entries) Swap(i, j int) {
 	e[i], e[j] = e[j], e[i]
 }
 
-func fromMap(m map[string]int) entries {
-	var buf entries
-	for k, v := range m {
-		buf = append(buf, entry{key: k, val: v})
-	}
-	return buf
-}
+func (e entries) marshalTopList(title string, max int) []string {
+	sort.Sort(sort.Reverse(e))
 
-// List top 20 entries
-func (u UI) formatSections(s TrafficStats) []string {
-	buf := fromMap(s.SectionHits)
-
-	sort.Sort(sort.Reverse(buf))
-
-	output := []string{"Hits - Section"}
+	output := []string{title}
 	count := 0
-	for _, v := range buf {
+	for _, v := range e {
 		output = append(output, fmt.Sprintf("%v - [%v](fg:blue)", v.val, v.key))
 		count++
-		if count >= 20 {
+		if count >= max {
 			break
 		}
 	}
-
 	return output
+}
+
+func (u UI) formatSections(s TrafficStats) []string {
+	buf := fromMap(s.SectionHits)
+
+	return buf.marshalTopList("Hits - Section", 20)
+}
+
+func (u UI) formatStatus(s TrafficStats) []string {
+	buf := fromMap(s.StatusClassHits)
+
+	return buf.marshalTopList("Hits - HTTP status", 10)
+}
+
+func (u UI) formatMethods(s TrafficStats) []string {
+	buf := fromMap(s.MethodHits)
+
+	return buf.marshalTopList("Hits - HTTP method", 10)
+}
+
+func (u UI) formatAlerts(a ThresholdAlert) []string {
+	if a.Open {
+		return []string{
+			"",
+			fmt.Sprintf("[!!](fg:red) High traffic generated an alert - hits = %.2freq/s\n - triggered at %v", a.Hits, a.Time.Format(time.RFC1123)),
+		}
+	}
+	return []string{
+		"",
+		fmt.Sprintf("[OK](fg:green) High traffic alert recovered - hits = %.2freq/s\n - recovered at %v", a.Hits, a.Time.Format(time.RFC1123)),
+	}
 }
