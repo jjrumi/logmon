@@ -23,6 +23,8 @@ root@d1a9bae2b407:/code# ./bin/logmon
 The monitor's GUI occupies the whole terminal.
 Use `Ctrl+C` or `Q` to exit.
 
+For more details, check out the Dockerfile and the Makefile.
+
 ### Configuration options of the log monitor
 
 ```
@@ -51,6 +53,9 @@ root@d1a9bae2b407:/code# flog -n 1 -l -d 1 >> /tmp/access.log &
 # Run the log monitor:
 root@d1a9bae2b407:/code# ./bin/logmon -refresh 5
 ```
+
+For multiple access into the same container, a helper target is provided: `make attach`.
+It allows to enter the running container of the log monitor.
 
 ## How to run the tests
 
