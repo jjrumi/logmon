@@ -44,7 +44,7 @@ func TestTrafficSupervisor_GeneratesStatsWithContinuousTraffic(t *testing.T) {
 	entries := make(chan logmon.LogEntry)
 	stats := make(chan logmon.TrafficStats)
 
-	// Simulate a continuous traffic stream - generate at most `maxEntries` entries:
+	// Simulate a continuous traffic stream - generate `maxEntries` entries:
 	maxEntries := 10000
 	ctx, cancel := context.WithCancel(context.Background())
 	go givenContinuousLogEntryWrites(ctx, entries, maxEntries)
@@ -64,7 +64,7 @@ func TestTrafficSupervisor_GeneratesStatsWithContinuousTraffic(t *testing.T) {
 		captured += read.TotalReqs
 	}
 
-	require.Equal(t, maxEntries, captured, "captured request match the generated requests")
+	require.Equal(t, maxEntries, captured, "captured requests match the generated requests")
 
 	cancel()
 }

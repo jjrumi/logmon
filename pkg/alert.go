@@ -88,7 +88,7 @@ func (a *alertSupervisor) trackAlerts(s TrafficStats, alerts chan<- ThresholdAle
 	reqsPerSec := float64(a.reqsInWindow) / float64(a.window)
 
 	if a.ongoing {
-		if reqsPerSec < float64(a.threshold) {
+		if reqsPerSec <= float64(a.threshold) {
 			a.ongoing = false
 			alert := ThresholdAlert{Open: false, Hits: reqsPerSec, Time: time.Now()}
 			log.Printf("close ongoing alert: %v", alert)

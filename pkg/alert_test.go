@@ -11,8 +11,10 @@ import (
 
 func TestAlertSupervisor_NoAlertsWithTrafficNotExceedingThreshold(t *testing.T) {
 	// Fill up stats channel with test data.
-	numEntries := 20
-	stats := make(chan logmon.TrafficStats, numEntries)
+	numWindows := 2
+	numEntries := 10
+	stats := make(chan logmon.TrafficStats, numWindows*numEntries)
+	sendStats(stats, logmon.TrafficStats{TotalReqs: 10}, numEntries) // Simulate 1 req/s
 	sendStats(stats, logmon.TrafficStats{TotalReqs: 10}, numEntries) // Simulate 1 req/s
 	close(stats)
 
@@ -52,18 +54,34 @@ func TestAlertSupervisor_AlertsWithHighTraffic(t *testing.T) {
 	require.True(t, a.Open, "alert is open")
 }
 
+// TestAlertSupervisor_AlertsAreRecovered tests alert creation and recovery.
+//
+// Visual representation of the generated traffic for this test:
+// ^
+// |           6 6 6 6 6
+// | 5 5 5 5 5 | | | | | 5 5 5 5 5
+// | | | | | | | | | | | | | | | |
+// | | | | | | | | | | | | | | | |
+// | | | | | | | | | | | | | | | | 2 2 2 2 2
+// | | | | | | | | | | | | | | | | | | | | |
+// | | | | | | | | | | | | | | | | | | | | |
+// |----------------------------------------->t
+//             ^- Alert!         ^- Recover!
 func TestAlertSupervisor_AlertsAreRecovered(t *testing.T) {
 	// Fill up stats channel with stats that force an alert:
-	numEntries := 10
-	stats := make(chan logmon.TrafficStats, 2*numEntries)
-	sendStats(stats, logmon.TrafficStats{TotalReqs: 11}, numEntries) // Simulate 1.1 req/s
-	sendStats(stats, logmon.TrafficStats{TotalReqs: 9}, numEntries)  // Simulate 0.9 req/s
+	numWindows := 4
+	numEntries := 5
+	stats := make(chan logmon.TrafficStats, numWindows*numEntries)
+	sendStats(stats, logmon.TrafficStats{TotalReqs: 5}, numEntries) // Simulate 5 req/s - no alert
+	sendStats(stats, logmon.TrafficStats{TotalReqs: 6}, numEntries) // Simulate 6 req/s - new alert
+	sendStats(stats, logmon.TrafficStats{TotalReqs: 5}, numEntries) // Simulate 5 req/s - alert recovered
+	sendStats(stats, logmon.TrafficStats{TotalReqs: 2}, numEntries) // Simulate 2 req/s - no alert
 	close(stats)
 
 	// Run alert supervisor:
-	threshold := 1 // req/s
-	interval := 10 // refresh interval, in seconds
-	window := 100  // seconds
+	threshold := 5 // req/s
+	interval := 1  // refresh interval, in seconds
+	window := 5    // seconds
 	manager := givenAnAlertSupervisor(threshold, interval, window)
 	alerts := make(chan logmon.ThresholdAlert, 2)
 	manager.Run(context.Background(), stats, alerts)
@@ -71,17 +89,25 @@ func TestAlertSupervisor_AlertsAreRecovered(t *testing.T) {
 	// First element is an open alert:
 	a, ok := <-alerts
 	require.True(t, ok, "alerts channel should be open")
-	require.Equal(t, 1.1, a.Hits, "alert for 1.1 req/s expected")
+	// 5.2 req/s expected => 4 x 5req + 1 x 6req = 26req over a 5s window ==> 26/5 = 5.2
+	require.Equal(t, 5.2, a.Hits, "alert for 1.1 req/s expected")
 	require.True(t, a.Open, "alert is open")
 
 	// Second element is a recovered alert:
 	a, ok = <-alerts
 	require.True(t, ok, "alerts channel should be open")
-	require.True(t, a.Hits < float64(threshold), "alert recovered when hits are below threshold")
+	// 5.0 req/s expected => 5 x 5req = 25req over a 5s window ==> 25/5 = 5.0
+	require.Equal(t, 5.0, a.Hits, "alert recovered when hits are below threshold")
 	require.False(t, a.Open, "alert is recovered")
+
+	// No new alerts were triggered as following traffic was below threshold.
+	require.Empty(t, alerts, "no alerts expected")
+
+	a, ok = <-alerts
+	require.False(t, ok, "alerts channel should be closed, got:", a)
 }
 
-func TestAlertSupervisor_ContextCancellationBreaksLoop(t *testing.T) {
+func TestAlertSupervisor_ContextCancellationEndsTheSupervisor(t *testing.T) {
 	// Run alert supervisor:
 	manager := givenAnAlertSupervisor(1, 10, 100)
 	stats := make(chan logmon.TrafficStats)

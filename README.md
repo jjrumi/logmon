@@ -95,8 +95,11 @@ It consumes TrafficStats and ThresholdAlert types. It updates the interface ever
 
 ## Things to improve
 - The monitor only considers one type of alert. Extend it with different alert types.
+- The monitor only considers the average value of a metric. Extend it to consider different scenarios:
+  - all points above threshold
+  - at least one point above threshold
 - Support multiple log formats.
-- Support inputs from not only files in disk, for instance, network inputs.
+- Support inputs not only from files in disk; for instance, network inputs.
 - Add more details to the UI: current req/s, the path of the monitored file, etc.
-- This monitor only works for a single file in a single machine. 
- - Evolve the architecture to notify traffic stats from multiple nodes into an alert service.
+- This monitor only works for a single file in a single machine:
+  - Evolve the architecture to notify traffic stats from multiple nodes into an alert service.

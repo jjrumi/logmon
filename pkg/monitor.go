@@ -56,6 +56,7 @@ func NewMonitor(opts MonitorOpts) *Monitor {
 }
 
 // Run executes all the components of the log monitor.
+// It orchestrates the setup, error handling and execution of the components.
 // The file watcher, traffic supervisor and alert supervisor run on their own goroutine.
 // The UI runs on the main goroutine and captures interruption signals.
 // On shutdown, it waits for all components to stop before exiting.
