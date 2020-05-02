@@ -6,7 +6,24 @@ SHELL := /bin/bash
 BIN=$(CURDIR)/bin
 ACCESS_LOG=/tmp/access.log
 
-go-install-vendor: ## Install dependencies
+###
+## Targets to build and run a Go-ready environment:
+###
+
+build: ## Build the log monitor binary
+	docker build -t jjrumi/logmon .
+
+bash:
+	docker run --name logmon --rm -it jjrumi/logmon bash
+
+attach:
+	docker exec -it logmon bash
+
+###
+## Targets for a Go-ready environment:
+###
+
+go-install: ## Install dependencies
 	go mod vendor
 
 go-test: ## Run the tests
@@ -18,5 +35,5 @@ go-build: ## Build the log monitor binary
 		-o $(BIN)/logmon \
 		./cmd
 
-sim-slow-traffic: ## Continuously write log entries into the $ACCESS_LOG file
-	flog -n 10 -l -d 2 -s 1 >> $(ACCESS_LOG)
+sim-slow-traffic: ## Write 1 req/s into the $ACCESS_LOG file
+	flog -n 1 -l -d 1 >> $(ACCESS_LOG)

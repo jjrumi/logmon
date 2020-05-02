@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/ioutil"
+	"log"
 	"sync"
 )
 
@@ -18,7 +20,7 @@ type MonitorOpts struct {
 // Monitor is a log monitor composed of:
 // - a file watcher which detects changes in the log file and produces a stream of LogEntry
 // - a traffic supervisor which consumes the stream of LogEntry and produces a stream of TrafficStats
-// - an alert manager which consumes the stream of TrafficStats and produces a stream of ThresholdAlert
+// - an alert supervisor which consumes the stream of TrafficStats and produces a stream of ThresholdAlert
 // - an UI which displays information consumed from the TrafficStats and ThresholdAlert streams
 type Monitor struct {
 	fileWatcher LogEntryProducer
@@ -30,7 +32,12 @@ type Monitor struct {
 // NewMonitor creates the Monitor type.
 func NewMonitor(opts MonitorOpts) *Monitor {
 	producer := NewLogEntryProducer(
-		ProducerOpts{opts.LogFilePath, io.SeekEnd, nil, NewW3CommonLogParser()},
+		ProducerOpts{
+			opts.LogFilePath,
+			io.SeekEnd,
+			log.New(ioutil.Discard, "", 0),
+			NewW3CommonLogParser(),
+		},
 	)
 
 	traffic := NewTrafficSupervisor(
@@ -49,7 +56,7 @@ func NewMonitor(opts MonitorOpts) *Monitor {
 }
 
 // Run executes all the components of the log monitor.
-// The file watcher, traffic supervisor and alert manager run on their own goroutine.
+// The file watcher, traffic supervisor and alert supervisor run on their own goroutine.
 // The UI runs on the main goroutine and captures interruption signals.
 // On shutdown, it waits for all components to stop before exiting.
 func (m Monitor) Run(parentCtx context.Context) error {

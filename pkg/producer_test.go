@@ -121,9 +121,9 @@ func setupFileAndProducer(t *testing.T) (*os.File, <-chan logmon.LogEntry, conte
 func givenALogEntryProducer(file *os.File) logmon.LogEntryProducer {
 	opts := logmon.ProducerOpts{
 		LogFilePath: file.Name(),
-		TailWhence: io.SeekStart,
-		TailLogger: tail.DiscardingLogger,
-		LogParser: logmon.NewW3CommonLogParser(),
+		TailWhence:  io.SeekStart,
+		TailLogger:  tail.DiscardingLogger,
+		LogParser:   logmon.NewW3CommonLogParser(),
 	}
 	producer := logmon.NewLogEntryProducer(opts)
 

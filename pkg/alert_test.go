@@ -16,11 +16,11 @@ func TestAlertSupervisor_NoAlertsWithTrafficNotExceedingThreshold(t *testing.T) 
 	sendStats(stats, logmon.TrafficStats{TotalReqs: 10}, numEntries) // Simulate 1 req/s
 	close(stats)
 
-	// Run alert manager:
+	// Run alert supervisor:
 	threshold := 1 // req/s
 	interval := 10 // refresh interval, in seconds
 	window := 100  // seconds
-	manager := givenAnAlertManager(threshold, interval, window)
+	manager := givenAnAlertSupervisor(threshold, interval, window)
 	alerts := make(chan logmon.ThresholdAlert)
 	manager.Run(context.Background(), stats, alerts)
 
@@ -38,11 +38,11 @@ func TestAlertSupervisor_AlertsWithHighTraffic(t *testing.T) {
 	sendStats(stats, logmon.TrafficStats{TotalReqs: 11}, numEntries) // Simulate 1.1 req/s
 	close(stats)
 
-	// Run alert manager:
+	// Run alert supervisor:
 	threshold := 1 // req/s
 	interval := 10 // refresh interval, in seconds
 	window := 100  // seconds
-	manager := givenAnAlertManager(threshold, interval, window)
+	manager := givenAnAlertSupervisor(threshold, interval, window)
 	alerts := make(chan logmon.ThresholdAlert, 1)
 	manager.Run(context.Background(), stats, alerts)
 
@@ -60,11 +60,11 @@ func TestAlertSupervisor_AlertsAreRecovered(t *testing.T) {
 	sendStats(stats, logmon.TrafficStats{TotalReqs: 9}, numEntries)  // Simulate 0.9 req/s
 	close(stats)
 
-	// Run alert manager:
+	// Run alert supervisor:
 	threshold := 1 // req/s
 	interval := 10 // refresh interval, in seconds
 	window := 100  // seconds
-	manager := givenAnAlertManager(threshold, interval, window)
+	manager := givenAnAlertSupervisor(threshold, interval, window)
 	alerts := make(chan logmon.ThresholdAlert, 2)
 	manager.Run(context.Background(), stats, alerts)
 
@@ -82,8 +82,8 @@ func TestAlertSupervisor_AlertsAreRecovered(t *testing.T) {
 }
 
 func TestAlertSupervisor_ContextCancellationBreaksLoop(t *testing.T) {
-	// Run alert manager:
-	manager := givenAnAlertManager(1, 10, 100)
+	// Run alert supervisor:
+	manager := givenAnAlertSupervisor(1, 10, 100)
 	stats := make(chan logmon.TrafficStats)
 	alerts := make(chan logmon.ThresholdAlert)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -106,7 +106,7 @@ func sendStats(stats chan logmon.TrafficStats, trafficStats logmon.TrafficStats,
 	return expectedHits
 }
 
-func givenAnAlertManager(threshold int, interval int, window int) logmon.AlertSupervisor {
+func givenAnAlertSupervisor(threshold int, interval int, window int) logmon.AlertSupervisor {
 	return logmon.NewAlertsSupervisor(
 		logmon.AlertSupervisorOpts{
 			AlertThreshold:  threshold,

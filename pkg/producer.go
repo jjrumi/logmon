@@ -143,6 +143,8 @@ type w3CommonLogParser struct {
 	logLineRegexp *regexp.Regexp
 }
 
+// NewW3CommonLogParser builds a w3 log parser.
+// It defines a regexp for the expected format of each log line.
 func NewW3CommonLogParser() LogParser {
 	return w3CommonLogParser{
 		logLineRegexp: regexp.MustCompile(
